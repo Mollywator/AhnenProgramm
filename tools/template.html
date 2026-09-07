@@ -3808,7 +3808,8 @@ function treesHTML(){
           ${list.length > 1 ? `<button class="btn" id="dropTree">Aus dem Programm nehmen</button>` : ""}
         </div>
         <p class="hintline" style="margin-top:10px">Entfernen löscht nichts: der Ordner
-          wandert nach <b>baeume\_geloescht</b> und kann von Hand zurückgeholt werden.</p>
+          wandert nach <b>_geloescht</b> im Datenordner und kann von Hand zurückgeholt
+          werden.</p>
       </div>
 
       <div class="sec"><h3>Dazu</h3>
@@ -3927,8 +3928,8 @@ async function setDataDir(move, feld){
 async function dropTree(){
   const name = DATA.meta.title || EDIT.offen;
   if(!confirm("„" + name + "“ aus dem Programm nehmen?\n\n" +
-              "Gelöscht wird nichts – der Ordner wandert nach baeume\\_geloescht und " +
-              "kann von Hand zurückgeholt werden.")) return;
+              "Gelöscht wird nichts – der Ordner wandert nach _geloescht im " +
+              "Datenordner und kann von Hand zurückgeholt werden.")) return;
   try{
     await api("/api/discard-tree?k=" + encodeURIComponent(EDIT.token), {slug: EDIT.offen});
     location.reload();

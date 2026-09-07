@@ -100,6 +100,12 @@ BIN_DIRNAME = "_geloescht"
 LOOSE = ("source", "data", "Export", "Stammbaum.html", "report.json",
          "Namensliste.txt")
 
+# Of those, the ones a save or an export writes again from the tree.  A leftover
+# of one of these is not worth a question on start: `source` and `data` hold a
+# report somebody scanned and cannot be got back, these hold nothing that is
+# not already in `baum.json`.
+REBUILDABLE = ("Export", "Stammbaum.html", "Namensliste.txt")
+
 # Enough saves to get back past a bad afternoon, few enough that the folder
 # stays readable when somebody opens it looking for something.
 KEEP_BACKUPS = 20
@@ -473,8 +479,16 @@ def all_slugs() -> list[str]:
     """Every tree this data folder holds, however it got there.
 
     Three places, because a data folder can be in any of three states: written
-    down in the registry, sitting in a `SB_` folder nobody has registered yet -
+    down in the registry, sitting in a folder nobody has registered yet -
     somebody copied one in - or still under the old `baeume/`.
+
+    What makes a folder a tree is the `baum.json` inside it, not its name.  It
+    used to be the `SB_` prefix, and that quietly broke the one case this is
+    for: somebody hands over the folder their family is in, it is called
+    whatever they called it, the program reports finding it - `identify` never
+    asked about the prefix - and then goes on not showing it.  A folder handed
+    over is named by the person who hands it over, and the program has no
+    business insisting on its own naming.
     """
     found: dict[str, str] = {}
 
@@ -484,21 +498,19 @@ def all_slugs() -> list[str]:
             found[slug] = folder
 
     root = data_dir()
-    if os.path.isdir(root):
-        known = set(found.values())
-        for name in os.listdir(root):
-            if not name.startswith(TREE_PREFIX) or name in known:
-                continue
-            if not os.path.isfile(os.path.join(root, name, TREE_FILE)):
-                continue
-            # not free_slug: that asks all_slugs, and this is all_slugs
-            slug = slugify(name[len(TREE_PREFIX):] or name)
-            n, unique = 2, slug
-            while unique in found:
-                unique = "%s-%d" % (slug, n)
-                n += 1
-            register(unique, name)
-            found[unique] = name
+    known = set(found.values())
+    for name in holds_trees(root):
+        if name in known:
+            continue
+        # not free_slug: that asks all_slugs, and this is all_slugs
+        bare = name[len(TREE_PREFIX):] if name.startswith(TREE_PREFIX) else name
+        slug = slugify(bare or name)
+        n, unique = 2, slug
+        while unique in found:
+            unique = "%s-%d" % (slug, n)
+            n += 1
+        register(unique, name, title_in(os.path.join(root, name)))
+        found[unique] = name
 
     old = trees_dir()
     if os.path.isdir(old):
@@ -755,6 +767,30 @@ def looks_like_tree(path: str) -> bool:
     return os.path.isfile(os.path.join(path, TREE_FILE))
 
 
+def title_in(path: str) -> str:
+    """What a tree folder calls itself, read without loading the whole tree.
+
+    Wanted before the folder is anybody's: the dialog asking whether to take a
+    folder in should say the family's name, not the folder's - and a folder
+    handed over is named by whoever handed it over.
+    """
+    try:
+        with open(os.path.join(path, TREE_FILE), encoding="utf-8") as fh:
+            title = (json.load(fh).get("meta") or {}).get("title")
+    except (OSError, ValueError):
+        return ""
+    return (title or "").strip()
+
+
+def count_in(path: str) -> int:
+    """How many people are in that folder's tree - for the same dialog."""
+    try:
+        with open(os.path.join(path, TREE_FILE), encoding="utf-8") as fh:
+            return len(json.load(fh).get("people") or [])
+    except (OSError, ValueError):
+        return 0
+
+
 def holds_trees(path: str) -> list[str]:
     """The tree folders directly inside `path`, whatever they are called."""
     if not os.path.isdir(path):
@@ -1003,6 +1039,15 @@ def pending_move() -> dict | None:
         if os.path.exists(os.path.join(root, name)):
             loose.append(name)
 
+    # Nothing left in the old `baeume/`: the move has already happened, and
+    # what still lies at the root is its remains.  Most of that is rebuilt on
+    # the next save or the next export anyway, and offering to move it asks a
+    # question with no answer - there is no tree it demonstrably belongs to.
+    # Left unchecked this fired on every single start, listed no trees, moved
+    # nothing when it was answered, and came back on the next start.
+    if not trees:
+        loose = [name for name in loose if name not in REBUILDABLE]
+
     if not trees and not loose:
         return None
 
@@ -1021,6 +1066,21 @@ def pending_move() -> dict | None:
         if owner is None:
             open_now = settings().get("offen")
             owner = next((t for t in trees if t["slug"] == open_now), trees[0])
+    elif loose:
+        # The trees are already in folders of their own and something
+        # irreplaceable is still lying loose - the report, the parse of it.  It
+        # belongs to the tree that has the people in it; where that is not
+        # obvious, it stays where it is rather than being guessed into a folder.
+        candidates = [{"slug": slug, "titel": heading_title(slug),
+                       "personen": count_in(tree_dir(slug, create=False)),
+                       "nach": (registry().get(slug) or {}).get("ordner") or ""}
+                      for slug in all_slugs()]
+        candidates = [c for c in candidates if c["personen"] and c["nach"]]
+        if len(candidates) == 1:
+            owner = candidates[0]
+        else:
+            return None
+
     return {"baeume": trees, "lose": loose,
             "gehoeren_zu": owner["titel"] if owner else None,
             "ziel": owner["nach"] if owner else None}
@@ -1071,6 +1131,50 @@ def do_move() -> dict:
         pass
 
     return {"verschoben": moved, "fehler": failed}
+
+
+def tidy_old_layout() -> None:
+    """Take the empty shell of the old arrangement away once it is empty.
+
+    After every tree has a folder of its own, `baeume/` holds nothing but the
+    bin the program stopped writing to - `discard` puts a removed tree straight
+    into the data folder now.  An empty folder called `baeume` sitting beside
+    the trees reads as though something were still in it, and is the first
+    place somebody looks for a tree they cannot find.
+
+    Only ever moves the bin, only when nothing else is in there, and quietly:
+    tidying up is not worth an error message, and a locked folder is a reason
+    to leave it alone rather than to complain.
+    """
+    old_root = trees_dir()
+    if not os.path.isdir(old_root):
+        return
+    try:
+        inside_it = os.listdir(old_root)
+    except OSError:
+        return
+    if any(name != BIN_DIRNAME for name in inside_it):
+        return                                   # trees still there: not our call
+
+    old_bin = os.path.join(old_root, BIN_DIRNAME)
+    if os.path.isdir(old_bin):
+        new_bin = os.path.join(data_dir(), BIN_DIRNAME)
+        try:
+            os.makedirs(new_bin, exist_ok=True)
+            for name in os.listdir(old_bin):
+                target = os.path.join(new_bin, name)
+                n, stem = 2, target
+                while os.path.exists(target):
+                    target = "%s (%d)" % (stem, n)
+                    n += 1
+                shutil.move(os.path.join(old_bin, name), target)
+            os.rmdir(old_bin)
+        except OSError:
+            return
+    try:
+        os.rmdir(old_root)
+    except OSError:
+        pass
 
 
 def old_layout() -> str | None:

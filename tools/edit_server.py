@@ -744,6 +744,8 @@ def main() -> None:
     # so that replacing or deleting that folder does not lose the way back to
     # the trees.
     store.anchor_pointer()
+    # The empty shell of the older arrangement, taken away once it is empty.
+    store.tidy_old_layout()
     if not store.writable(ordner):
         complain(
             "Der Datenordner laesst sich nicht beschreiben:\n\n"
