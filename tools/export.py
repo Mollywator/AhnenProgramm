@@ -31,6 +31,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import baum as baum_lib  # noqa: E402
@@ -197,6 +198,39 @@ def write_png(blob64: str, path: str) -> None:
 
 # ------------------------------------------------------------------- the PDF
 PRINT_TIMEOUT = 300
+# How long to keep waiting for the PDF after Edge's launcher has returned, and
+# how long the file has to stop growing before it counts as finished.  Generous,
+# because the cost of waiting too long is a slow export and the cost of waiting
+# too little is a print that failed for no reason anybody can see.
+PDF_GRACE = 120
+PDF_SETTLE = 1.5
+
+
+def warte_auf_datei(pfad: str) -> bool:
+    """Wait for a file to appear and stop growing. True if it did.
+
+    Existence is not enough: Edge creates the file and then writes into it, so
+    a check the instant it appears can find nothing but a header - and deleting
+    the profile at that moment leaves a truncated PDF, which is worse than none
+    at all because it looks like it worked.
+    """
+    frist = time.time() + PDF_GRACE
+    letzte, seit = -1, 0.0
+    while time.time() < frist:
+        try:
+            jetzt = os.path.getsize(pfad)
+        except OSError:
+            jetzt = -1
+        if jetzt > 0:
+            if jetzt == letzte:
+                seit += 0.25
+                if seit >= PDF_SETTLE:
+                    return True
+            else:
+                seit = 0.0
+        letzte = jetzt
+        time.sleep(0.25)
+    return os.path.exists(pfad) and os.path.getsize(pfad) > 0
 
 
 def to_pdf(html_path: str, pdf_path: str) -> None:
@@ -230,19 +264,114 @@ def to_pdf(html_path: str, pdf_path: str) -> None:
                        "--print-to-pdf=" + target, source]
             try:
                 done = subprocess.run(command, capture_output=True, text=True,
+                                      # Without a console there is no standard
+                                      # input to inherit, and what Edge gets
+                                      # instead is a handle that is not a handle.
+                                      # A program started by double click has no
+                                      # console; one started from a terminal does,
+                                      # which is why a fault of this kind only
+                                      # ever shows up for the person using it.
+                                      stdin=subprocess.DEVNULL,
                                       timeout=PRINT_TIMEOUT)
             except subprocess.TimeoutExpired:
                 notes.append("Versuch %d: Edge hat nach %d Minuten nicht geantwortet."
                              % (attempt, PRINT_TIMEOUT // 60))
                 continue
-        if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+            # Waited for the file, not for the process, and inside the `with`
+            # so the profile folder is still there while it happens.
+            #
+            # The process that was started is a launcher: on Windows it hands
+            # the work to a browser process and returns, and it returns 0 for
+            # doing so.  Taking that as the answer deleted the profile out from
+            # under a browser that had not finished starting - and a browser
+            # whose profile disappears writes nothing, says nothing, and has
+            # already reported success through the process that is gone.  On a
+            # quiet machine the launcher is slow enough that this never shows;
+            # under load it is exactly what happens.
+            gewartet = warte_auf_datei(pdf_path)
+            # An Edge that really ran leaves files in its profile.  An empty one
+            # means it never worked at all - it handed its command line to
+            # another instance and ended, which looks like success from outside.
+            try:
+                angefasst = len(os.listdir(profile))
+            except OSError:
+                angefasst = -1
+        if gewartet:
             return
-        notes.append("Versuch %d: Edge endete mit Rueckgabecode %s.\n%s"
-                     % (attempt, done.returncode,
-                        (done.stderr or "").strip()[-600:] or "Edge hat nichts dazu gesagt."))
+        gesagt = "\n".join(t for t in ((done.stdout or "").strip()[-400:],
+                                       (done.stderr or "").strip()[-600:]) if t)
+        notes.append(
+            "Versuch %d: Edge endete mit Rueckgabecode %s.\n"
+            "  Im Druckprofil lagen danach %s.\n"
+            "%s"
+            % (attempt, done.returncode,
+               "keine Dateien - Edge hat gar nicht erst gearbeitet"
+               if angefasst == 0 else "%d Datei(en)" % angefasst,
+               gesagt or "  Edge hat nichts dazu gesagt."))
 
-    raise RuntimeError("Edge hat keine PDF geschrieben.\n\n%s\n\nEdge: %s\nSeite: %s"
-                       % ("\n\n".join(notes), browser, html_path))
+    raise RuntimeError(
+        "Edge hat keine PDF geschrieben.\n\n%s\n\n%s"
+        % ("\n\n".join(notes), umstaende(browser, html_path, pdf_path)))
+
+
+def edge_version(browser: str) -> str:
+    """Edge's version, read off the disk without starting anything.
+
+    Chromium keeps its resources in a folder named after the version, right
+    beside the exe.  Reading that is a directory listing; asking the program
+    itself is a launch, and a launch is exactly what must not happen here.
+    """
+    beside = os.path.dirname(os.path.abspath(browser))
+    try:
+        namen = os.listdir(beside)
+    except OSError:
+        return ""
+    versionen = [n for n in namen
+                 if os.path.isdir(os.path.join(beside, n))
+                 and n[:1].isdigit() and n.replace(".", "").isdigit()]
+    return max(versionen, key=lambda n: [int(t) for t in n.split(".")]) if versionen else ""
+
+
+def umstaende(browser: str, html_path: str, pdf_path: str) -> str:
+    """Everything about the situation that a later reader would ask for.
+
+    Written because the last account of a failed print said "Edge hat nichts
+    dazu gesagt" and nothing else, which is not enough to look into anything.
+    All of it is read, none of it changes a thing, and it costs a few
+    milliseconds on a path that has already failed.
+    """
+    zeilen = ["Edge: " + browser]
+    # Read off the disk, never asked.  `msedge.exe --version` looks like the
+    # obvious way and is a trap: where a browser is already running, Edge does
+    # not answer the question at all - it treats the call as "open the browser"
+    # and hands it to the running instance, or opens a fresh empty window.  A
+    # diagnostic that opens a window on somebody's screen while they are doing
+    # something else is worse than no diagnostic.  The version is the name of
+    # the folder beside the exe.
+    zeilen.append("Edge-Fassung: " + (edge_version(browser) or "nicht ablesbar"))
+
+    try:
+        laeuft = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq msedge.exe", "/NH"],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=20)
+        zahl = sum(1 for z in (laeuft.stdout or "").splitlines() if "msedge" in z.lower())
+        zeilen.append("Edge lief nebenher: %s" % ("nein" if not zahl else "%d Prozess(e)" % zahl))
+    except Exception:                                      # noqa: BLE001
+        pass
+
+    try:
+        zeilen.append("Seite: %s (%.1f MB)"
+                      % (html_path, os.path.getsize(html_path) / 1048576))
+    except OSError:
+        zeilen.append("Seite: %s - die Datei war nicht da" % html_path)
+
+    ordner = os.path.dirname(os.path.abspath(pdf_path))
+    try:
+        frei = shutil.disk_usage(ordner).free / 1073741824
+        zeilen.append("Ziel: %s (%.1f GB frei)" % (ordner, frei))
+    except OSError:
+        zeilen.append("Ziel: %s" % ordner)
+    return "\n".join(zeilen)
 
 
 # ----------------------------------------------------------- printable pages
