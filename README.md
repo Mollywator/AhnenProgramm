@@ -75,14 +75,32 @@ Inside it, **one folder per tree**, named after the family:
 
 ```
 <data folder>/
-  einstellungen.json     which tree was open, and where each one lives
-  SB_Hemken/             one family, everything of it together
+  einstellungen.json                 which tree was open, and where each one lives
+  Stammbäume in diesem Ordner.txt    the same thing, for whoever opens the folder
+  SB_Hemken/                         one family, everything of it together
   SB_Rodenberg/
 ```
+
+What makes a folder a tree is the `baum.json` in it, not its name — a folder
+somebody hands over keeps whatever they called it. The settings file is a
+convenience rather than a register: delete it and every tree is still found.
 
 To move everything somewhere else — an external disk, a synced folder — use
 **Stammbäume → Wo alles liegt** in the editor. *Umziehen* takes the trees along,
 *Zeigen* leaves them and opens whatever is already at the new place.
+
+## Bringing a tree in
+
+**Importieren** takes either a file or a folder.
+
+| What you have | What to give it | What happens |
+|---|---|---|
+| a `.baum` from this program, or a GEDCOM from any other | the file | read in as a tree of its own, or merged into the open one |
+| a data folder from an earlier installation, another machine, a backup disk | the folder | *Dorthin zeigen* — nothing is copied, the program works there from now on and every tree in it is there at once |
+| one family's folder, handed over on a stick | that one folder | *Hierher kopieren* — a copy joins the trees already here, the original is untouched, and the folders beside it are not even looked at |
+
+Point at anything and the dialog says what it found — the families by name, and
+how many people are in each — before a button is pressed.
 
 ## When something does not work
 

@@ -45,9 +45,18 @@ import build_site  # noqa: E402
 import gedcom  # noqa: E402
 import edits as person_lib  # noqa: E402
 import export as export_lib  # noqa: E402
+import format as schema  # noqa: E402  - "format" is a builtin, hence the rename
 import store  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# Kept in step with VERSION in tools/template.html and build_exe.py.  Shown in
+# the options, and named in the message a tree from a newer program produces.
+VERSION = "1.0"
+# Where a newer version would come from.  The program itself never asks it
+# anything - it hands the address to the browser and stops there.  See the
+# options dialog for why that line is where it is.
+REPO_URL = "https://github.com/Mollywator/AhnenProgramm"
 # As a script the program folder is one above tools/; as a built exe it is the
 # folder the exe itself sits in, next to Stammbaum.html and data/.
 ROOT = (os.path.dirname(os.path.abspath(sys.executable))
@@ -107,10 +116,122 @@ def free_name(folder: str, name: str) -> str:
     return candidate
 
 
+def pick_folder(start: str = "") -> str:
+    """Ask Windows for a folder and hand back the path, or "" if cancelled.
+
+    Wanted because the page cannot ask: a file picker in a browser hands over
+    bytes and withholds the path, and a folder has no bytes to hand over at
+    all.  This process is on the machine the folder is on, so it can ask.
+
+    Through the shell's own dialog rather than tkinter: tkinter would work in
+    four lines and put roughly ten megabytes of GUI toolkit into a program
+    whose whole point is that it is one file somebody double clicks.  The
+    dependency rule in CLAUDE.md is what decided it.
+
+    Returns "" wherever the answer is "no folder", including on a system with
+    no shell to ask - the typed field beside the button covers that case, and
+    an import dialog is not the place to explain an operating system.
+    """
+    if sys.platform != "win32":
+        return ""
+    import ctypes
+    from ctypes import wintypes
+
+    class BROWSEINFOW(ctypes.Structure):
+        _fields_ = [("hwndOwner", wintypes.HWND),
+                    ("pidlRoot", ctypes.c_void_p),
+                    ("pszDisplayName", wintypes.LPWSTR),
+                    ("lpszTitle", wintypes.LPCWSTR),
+                    ("ulFlags", wintypes.UINT),
+                    ("lpfn", ctypes.c_void_p),
+                    ("lParam", wintypes.LPARAM),
+                    ("iImage", ctypes.c_int)]
+
+    shell32 = ctypes.windll.shell32
+    ole32 = ctypes.windll.ole32
+    user32 = ctypes.windll.user32
+    # ctypes returns a C int unless told otherwise, and a window handle is a
+    # pointer: on 64 bit the top half is cut off and what is left is not a
+    # window.  The dialog then refuses to open and says nothing about why.
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    # The new-style dialog is a COM control and refuses to appear without an
+    # apartment; the older one would come up regardless and look it.
+    ole32.CoInitialize(None)
+    try:
+        name = ctypes.create_unicode_buffer(260)
+        info = BROWSEINFOW()
+        # The window in front belongs to the browser showing the editor, which
+        # is a different process - owning the dialog to it is what keeps it
+        # from opening behind the page somebody just clicked in.
+        info.hwndOwner = user32.GetForegroundWindow()
+        info.pszDisplayName = ctypes.cast(name, wintypes.LPWSTR)
+        info.lpszTitle = "Ordner mit dem Stammbaum wählen"
+        # NEWDIALOGSTYLE: resizable, with a "new folder" button.
+        # EDITBOX: a line to paste a path into, which is how a path arrives
+        # from an Explorer address bar.
+        # RETURNONLYFSDIRS: no printers and no control panel.
+        info.ulFlags = 0x00000040 | 0x00000010 | 0x00000001
+        shell32.SHBrowseForFolderW.restype = ctypes.c_void_p
+        pidl = shell32.SHBrowseForFolderW(ctypes.byref(info))
+        if not pidl:
+            return ""
+        path = ctypes.create_unicode_buffer(1024)
+        shell32.SHGetPathFromIDListW.argtypes = [ctypes.c_void_p, wintypes.LPWSTR]
+        got = shell32.SHGetPathFromIDListW(pidl, path)
+        ole32.CoTaskMemFree(ctypes.c_void_p(pidl))
+        return path.value if got else ""
+    finally:
+        ole32.CoUninitialize()
+
+
 # The rendered page, kept until the tree changes.  Building it means base64
 # encoding every portrait, which is a second or so - fine once, silly on every
 # reload while somebody is working.
 PAGE_CACHE: dict = {"stamp": None, "html": None}
+
+
+def zu_neu_seite(err: store.ZuNeu) -> str:
+    """A page of its own for a tree this version must not touch.
+
+    Its own page rather than a message inside the editor, because the editor is
+    built around a tree it has just read - and there is none.  Saying it plainly
+    on an empty page is also the honest shape of the situation: there is exactly
+    one thing to do, and it is not in this program.
+    """
+    import html as _html
+    titel = _html.escape(err.titel or "Dieser Stammbaum")
+    return """<!doctype html><html lang="de"><head><meta charset="utf-8">
+<title>Programm ist zu alt</title>
+<style>
+ body{margin:0;background:#f4f1ea;color:#2b2724;
+      font:16px/1.6 "Segoe UI",system-ui,sans-serif;
+      display:flex;min-height:100vh;align-items:center;justify-content:center}
+ main{max-width:34em;padding:34px 38px;background:#fbf9f4;border:1px solid #ddd6c8}
+ h1{font-size:22px;margin:0 0 6px;font-weight:600}
+ .k{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#8a8377}
+ p{margin:14px 0}
+ table{border-collapse:collapse;margin:18px 0;font-size:15px}
+ td{padding:3px 18px 3px 0}
+ td:first-child{color:#8a8377}
+ a{color:#8a3b2e}
+ .rand{margin-top:22px;padding-top:16px;border-top:1px solid #e4ddd0;
+       font-size:14px;color:#6d675e}
+</style></head><body><main>
+ <div class="k">Achtung</div>
+ <h1>Das Programm ist zu alt für diesen Stammbaum</h1>
+ <p><b>%s</b> wurde mit einer neueren Fassung gespeichert. Diese hier kennt die
+    neuen Felder nicht &ndash; sie würde die Familie zwar anzeigen, aber beim
+    ersten Speichern alles wegwerfen, was sie nicht versteht. Deshalb wird der
+    Stammbaum gar nicht erst geöffnet.</p>
+ <table>
+  <tr><td>Der Stammbaum ist in</td><td>Format %d</td></tr>
+  <tr><td>Dieses Programm kann</td><td>Format %d</td></tr>
+ </table>
+ <p>Was hilft: die neuere Fassung des Programms holen.</p>
+ <p><a href="%s/releases" target="_blank" rel="noopener">%s/releases</a></p>
+ <div class="rand">An den Daten ist nichts kaputt und es wurde nichts
+   verändert. Dieses Fenster kann einfach geschlossen werden.</div>
+</main></body></html>""" % (titel, err.hat, err.kann, REPO_URL, REPO_URL)
 
 
 def read_state(tree: dict) -> dict:
@@ -129,6 +250,10 @@ def read_state(tree: dict) -> dict:
         "gespeichert": (tree.get("meta") or {}).get("gespeichert"),
         "offen": store.open_slug(),
         "baeume": store.listing(),
+        "programmversion": VERSION,
+        "format": schema.FORMAT,
+        "repo": REPO_URL,
+        "umgewandelt": (tree.get("meta") or {}).get("umgewandelt"),
     }
 
 
@@ -282,7 +407,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         the head: the page's own script reads it while setting itself up, so it
         may not arrive afterwards.
         """
-        tree = current_tree()
+        try:
+            tree = current_tree()
+        except store.ZuNeu as err:
+            return self.send_blob(zu_neu_seite(err).encode("utf-8"),
+                                  "text/html; charset=utf-8")
         html = render_page(tree)
         boot = ("<script>window.STAMMBAUM_EDIT=" +
                 json.dumps(read_state(tree), ensure_ascii=False) + ";</script>")
@@ -319,6 +448,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.api_take_over()
             if route == "/api/import":
                 return self.api_import()
+            if route == "/api/import-folder":
+                return self.api_import_folder()
+            if route == "/api/waehle-ordner":
+                return self.api_pick_folder()
             if route == "/api/open-tree":
                 return self.api_open_tree()
             if route == "/api/rename-tree":
@@ -335,6 +468,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.api_umziehen()
             if route == "/api/open-folder":
                 return self.api_open_folder()
+            if route == "/api/updates":
+                return self.api_updates()
             if route == "/api/quit":
                 self.send_json({"ok": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -586,6 +721,87 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "doppelverdaechtig": twins[:40],
                         "doppelt": len(twins)})
 
+    def api_import_folder(self) -> None:
+        """Read a folder rather than a file - the other half of importing.
+
+        Three things somebody can be holding, and the difference matters
+        enough that it is asked rather than guessed:
+
+        *zeigen* is putting an installation back.  The trees are already in a
+        folder somewhere and nothing should be copied anywhere - the program
+        is simply told to work there from now on.  Nothing is written except
+        the note saying where to look.
+
+        *kopieren* is somebody handing over their family.  The folder stays
+        theirs and untouched; what arrives here is a copy, beside the trees
+        that are already here rather than instead of them.
+
+        Which trees, finally, is `nur`: pointing at one tree folder takes that
+        one and does not go looking at its neighbours, which is the whole
+        difference between "here is my family" and "here is my data folder".
+        """
+        payload = self.body()
+        wanted = (payload.get("pfad") or "").strip()
+        mode = (payload.get("modus") or "kopieren").strip()
+        if not wanted:
+            return self.fail(400, "Ohne Ordner geht es nicht.")
+
+        was = store.identify(wanted)
+        if was["art"] == "fehlt":
+            return self.fail(400, "Diesen Ordner gibt es nicht: " + was["gefragt"])
+        if was["art"] == "leer":
+            return self.fail(400, "In diesem Ordner liegt kein Stammbaum.")
+
+        if mode == "zeigen":
+            # The folder to point at is the one holding the trees, not the tree
+            # itself - that distinction is `identify`'s whole job.
+            target = was["ordner"]
+            if not store.writable(target):
+                return self.fail(400, "Dorthin kann nicht geschrieben werden: " + target)
+            store.write_pointer(target)
+            return self.send_json({"ok": True, "modus": mode, "ordner": target,
+                                   "erkannt": was, "gefunden": len(was["baeume"])})
+
+        only = payload.get("nur") or None
+        try:
+            if was["art"] == "baum":
+                slugs = [store.adopt_folder(was["gefragt"])]
+            else:
+                where = was["gefragt"]
+                if not store.holds_trees(where):
+                    where = os.path.join(where, store.TREES_DIRNAME)
+                slugs = store.adopt_all(where, only)
+        except (ValueError, OSError) as err:
+            return self.fail(400, "Nicht übernommen: %s" % err)
+
+        if slugs:
+            store.set_open(slugs[0])
+        self.send_json({"ok": True, "modus": mode, "erkannt": was,
+                        "offen": store.open_slug(),
+                        "uebernommen": [{"slug": s, "titel": store.heading_title(s),
+                                         "personen": store.heading(s)["personen"]}
+                                        for s in slugs]})
+
+    def api_pick_folder(self) -> None:
+        """Let Windows ask the question, so nobody has to copy a path by hand.
+
+        The page cannot do this: a browser hands over a file's bytes and never
+        its path, and a folder has no bytes at all.  The server can, because it
+        is running on the machine the folder is on.
+
+        Done with the shell's own dialog through ctypes rather than tkinter,
+        which would put ten megabytes of GUI toolkit into the exe for one
+        question.  The typed field stays either way - this only saves the trip
+        through the address bar.
+        """
+        start = (self.body().get("start") or "").strip()
+        try:
+            picked = pick_folder(start)
+        except Exception as err:                       # noqa: BLE001
+            return self.fail(500, "Der Ordner-Dialog liess sich nicht öffnen: %s" % err)
+        self.send_json({"ok": True, "pfad": picked,
+                        "erkannt": store.identify(picked) if picked else None})
+
     def api_umziehen(self) -> None:
         """Give every tree a folder of its own, on a click and not before.
 
@@ -675,8 +891,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_json({"ok": True, "dateien": written, "ordner": target})
 
     def api_open_folder(self) -> None:
-        subprocess.Popen(["explorer", os.path.normpath(export_dir())])
+        wohin = (self.body().get("was") or "").strip()
+        ziel = store.data_dir() if wohin == "daten" else export_dir()
+        subprocess.Popen(["explorer", os.path.normpath(ziel)])
         self.send_json({"ok": True})
+
+    def api_updates(self) -> None:
+        """Hand the releases page to the browser, and nothing else.
+
+        The program asks GitHub nothing.  It has never made a request off this
+        machine and the README says so, which is a property worth keeping in a
+        program that holds birth dates and photographs of living children: a
+        version check is a request that says "this copy exists, here, now",
+        every time it starts.
+
+        Opening a page instead puts the person in front of the answer with
+        their own browser and their own session - which also happens to be the
+        only thing that works while the repository is private, where an
+        unauthenticated request would see nothing at all.  If it ever becomes
+        public, a real check belongs here and nowhere else.
+        """
+        webbrowser.open(REPO_URL + "/releases")
+        self.send_json({"ok": True, "geoeffnet": REPO_URL + "/releases"})
 
 
 class Server(socketserver.ThreadingTCPServer):
@@ -744,6 +980,8 @@ def main() -> None:
     # so that replacing or deleting that folder does not lose the way back to
     # the trees.
     store.anchor_pointer()
+    # The empty shell of the older arrangement, taken away once it is empty.
+    store.tidy_old_layout()
     if not store.writable(ordner):
         complain(
             "Der Datenordner laesst sich nicht beschreiben:\n\n"
