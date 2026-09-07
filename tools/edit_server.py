@@ -45,9 +45,18 @@ import build_site  # noqa: E402
 import gedcom  # noqa: E402
 import edits as person_lib  # noqa: E402
 import export as export_lib  # noqa: E402
+import format as schema  # noqa: E402  - "format" is a builtin, hence the rename
 import store  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# Kept in step with VERSION in tools/template.html and build_exe.py.  Shown in
+# the options, and named in the message a tree from a newer program produces.
+VERSION = "1.0"
+# Where a newer version would come from.  The program itself never asks it
+# anything - it hands the address to the browser and stops there.  See the
+# options dialog for why that line is where it is.
+REPO_URL = "https://github.com/Mollywator/AhnenProgramm"
 # As a script the program folder is one above tools/; as a built exe it is the
 # folder the exe itself sits in, next to Stammbaum.html and data/.
 ROOT = (os.path.dirname(os.path.abspath(sys.executable))
@@ -181,6 +190,50 @@ def pick_folder(start: str = "") -> str:
 PAGE_CACHE: dict = {"stamp": None, "html": None}
 
 
+def zu_neu_seite(err: store.ZuNeu) -> str:
+    """A page of its own for a tree this version must not touch.
+
+    Its own page rather than a message inside the editor, because the editor is
+    built around a tree it has just read - and there is none.  Saying it plainly
+    on an empty page is also the honest shape of the situation: there is exactly
+    one thing to do, and it is not in this program.
+    """
+    import html as _html
+    titel = _html.escape(err.titel or "Dieser Stammbaum")
+    return """<!doctype html><html lang="de"><head><meta charset="utf-8">
+<title>Programm ist zu alt</title>
+<style>
+ body{margin:0;background:#f4f1ea;color:#2b2724;
+      font:16px/1.6 "Segoe UI",system-ui,sans-serif;
+      display:flex;min-height:100vh;align-items:center;justify-content:center}
+ main{max-width:34em;padding:34px 38px;background:#fbf9f4;border:1px solid #ddd6c8}
+ h1{font-size:22px;margin:0 0 6px;font-weight:600}
+ .k{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#8a8377}
+ p{margin:14px 0}
+ table{border-collapse:collapse;margin:18px 0;font-size:15px}
+ td{padding:3px 18px 3px 0}
+ td:first-child{color:#8a8377}
+ a{color:#8a3b2e}
+ .rand{margin-top:22px;padding-top:16px;border-top:1px solid #e4ddd0;
+       font-size:14px;color:#6d675e}
+</style></head><body><main>
+ <div class="k">Achtung</div>
+ <h1>Das Programm ist zu alt für diesen Stammbaum</h1>
+ <p><b>%s</b> wurde mit einer neueren Fassung gespeichert. Diese hier kennt die
+    neuen Felder nicht &ndash; sie würde die Familie zwar anzeigen, aber beim
+    ersten Speichern alles wegwerfen, was sie nicht versteht. Deshalb wird der
+    Stammbaum gar nicht erst geöffnet.</p>
+ <table>
+  <tr><td>Der Stammbaum ist in</td><td>Format %d</td></tr>
+  <tr><td>Dieses Programm kann</td><td>Format %d</td></tr>
+ </table>
+ <p>Was hilft: die neuere Fassung des Programms holen.</p>
+ <p><a href="%s/releases" target="_blank" rel="noopener">%s/releases</a></p>
+ <div class="rand">An den Daten ist nichts kaputt und es wurde nichts
+   verändert. Dieses Fenster kann einfach geschlossen werden.</div>
+</main></body></html>""" % (titel, err.hat, err.kann, REPO_URL, REPO_URL)
+
+
 def read_state(tree: dict) -> dict:
     """What the page needs to know about the program behind it."""
     return {
@@ -197,6 +250,10 @@ def read_state(tree: dict) -> dict:
         "gespeichert": (tree.get("meta") or {}).get("gespeichert"),
         "offen": store.open_slug(),
         "baeume": store.listing(),
+        "programmversion": VERSION,
+        "format": schema.FORMAT,
+        "repo": REPO_URL,
+        "umgewandelt": (tree.get("meta") or {}).get("umgewandelt"),
     }
 
 
@@ -350,7 +407,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         the head: the page's own script reads it while setting itself up, so it
         may not arrive afterwards.
         """
-        tree = current_tree()
+        try:
+            tree = current_tree()
+        except store.ZuNeu as err:
+            return self.send_blob(zu_neu_seite(err).encode("utf-8"),
+                                  "text/html; charset=utf-8")
         html = render_page(tree)
         boot = ("<script>window.STAMMBAUM_EDIT=" +
                 json.dumps(read_state(tree), ensure_ascii=False) + ";</script>")
@@ -407,6 +468,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.api_umziehen()
             if route == "/api/open-folder":
                 return self.api_open_folder()
+            if route == "/api/updates":
+                return self.api_updates()
             if route == "/api/quit":
                 self.send_json({"ok": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -828,8 +891,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_json({"ok": True, "dateien": written, "ordner": target})
 
     def api_open_folder(self) -> None:
-        subprocess.Popen(["explorer", os.path.normpath(export_dir())])
+        wohin = (self.body().get("was") or "").strip()
+        ziel = store.data_dir() if wohin == "daten" else export_dir()
+        subprocess.Popen(["explorer", os.path.normpath(ziel)])
         self.send_json({"ok": True})
+
+    def api_updates(self) -> None:
+        """Hand the releases page to the browser, and nothing else.
+
+        The program asks GitHub nothing.  It has never made a request off this
+        machine and the README says so, which is a property worth keeping in a
+        program that holds birth dates and photographs of living children: a
+        version check is a request that says "this copy exists, here, now",
+        every time it starts.
+
+        Opening a page instead puts the person in front of the answer with
+        their own browser and their own session - which also happens to be the
+        only thing that works while the repository is private, where an
+        unauthenticated request would see nothing at all.  If it ever becomes
+        public, a real check belongs here and nowhere else.
+        """
+        webbrowser.open(REPO_URL + "/releases")
+        self.send_json({"ok": True, "geoeffnet": REPO_URL + "/releases"})
 
 
 class Server(socketserver.ThreadingTCPServer):

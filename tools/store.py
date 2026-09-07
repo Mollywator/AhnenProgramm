@@ -81,6 +81,7 @@ import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import edits as person_lib  # noqa: E402
+import format as schema  # noqa: E402  - "format" is a builtin, hence the rename
 
 FOLDER_NAME = "Stammbaum-Daten"
 APP_DIRNAME = "Ahnenprogramm"
@@ -93,6 +94,9 @@ SETTINGS_FILE = "einstellungen.json"
 PHOTO_DIRNAME = "fotos"
 DOCS_DIRNAME = "dokumente"
 BACKUP_DIRNAME = "sicherung"
+# Inside `sicherung/`, and never pruned: the tree exactly as it was before a
+# format conversion.  See `keep_format_backup`.
+FORMAT_BACKUP_DIRNAME = os.path.join("sicherung", "format")
 BIN_DIRNAME = "_geloescht"
 
 # Everything of a tree that used to lie loose in the data folder, and the name
@@ -580,20 +584,75 @@ def has_tree(slug: str | None = None) -> bool:
     return os.path.exists(tree_path(slug))
 
 
+class ZuNeu(Exception):
+    """A tree written by a newer version of this program.
+
+    Not an error in the file and not something to work around: opening it would
+    show most of the family, and the first save would then drop every field this
+    version has never heard of.  Whoever holds it needs the newer program, and
+    that is all this can usefully say.
+    """
+
+    def __init__(self, hat: int, kann: int, titel: str = ""):
+        self.hat, self.kann, self.titel = hat, kann, titel
+        super().__init__(
+            "Dieser Stammbaum wurde mit einer neueren Fassung gespeichert "
+            "(Format %d). Dieses Programm kennt Format %d." % (hat, kann))
+
+
 def load(slug: str | None = None) -> dict:
-    """The open tree, or an empty one when the program has never been used."""
+    """The open tree, or an empty one when the program has never been used.
+
+    A tree in an older shape is brought forward here, once, and written back -
+    so everything downstream may assume the current shape and no reader has to
+    know what version 1 looked like.  The file as it was is copied aside first,
+    into a place nothing prunes: a conversion that turns out to be wrong months
+    later is the one case where the ordinary rolling backups are already gone.
+    """
     slug = slug or open_slug()
     if not has_tree(slug):
         return empty_tree()
     with open(tree_path(slug), encoding="utf-8") as fh:
         tree = json.load(fh)
     tree.setdefault("meta", {})
+
+    if schema.zu_neu(tree):
+        raise ZuNeu(schema.version(tree), schema.FORMAT,
+                    (tree.get("meta") or {}).get("title") or slug)
+    if schema.veraltet(tree):
+        vorher = schema.version(tree)
+        keep_format_backup(slug, vorher)
+        getan = schema.umwandeln(tree)
+        tree["meta"]["umgewandelt"] = {
+            "am": datetime.datetime.now().isoformat(timespec="seconds"),
+            "von": vorher, "auf": schema.FORMAT, "schritte": getan}
+
     tree["people"] = [person_lib.fill_missing(p) for p in tree.get("people") or []]
     tree.setdefault("marriages", [])
     tree.setdefault("source_titles", {})
     tree.setdefault("checks", [])
     person_lib.normalise_links(tree["people"])
+
+    if (tree.get("meta") or {}).get("umgewandelt"):
+        save(tree, slug)
     return tree
+
+
+def keep_format_backup(slug: str, von: int) -> str:
+    """Put the file aside exactly as it is, before a single step runs.
+
+    Kept apart from `sicherung/` on purpose: those are the last couple of dozen
+    saves and are thrown away as new ones arrive.  This one has to survive
+    that - it is what a conversion is undone from, and the doubt about a
+    conversion usually arrives long after the rolling backups have rolled.
+    """
+    source = tree_path(slug)
+    folder = os.path.join(tree_dir(slug), FORMAT_BACKUP_DIRNAME)
+    os.makedirs(folder, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H%M%S")
+    target = os.path.join(folder, "baum Format %d %s.json" % (von, stamp))
+    shutil.copy2(source, target)
+    return target
 
 
 def save(tree: dict, slug: str | None = None) -> str:
@@ -606,6 +665,10 @@ def save(tree: dict, slug: str | None = None) -> str:
     slug = slug or open_slug()
     person_lib.normalise_links(tree["people"])
     tree.setdefault("meta", {})
+    # Which shape this was written in.  Stamped rather than converted: writing
+    # the number is not a conversion and needs no backup - the shape is already
+    # the one this program uses, it just had not said so yet.
+    schema.stempeln(tree)
     tree["meta"]["count"] = len(tree["people"])
     # Counted from the folder, not from the records: a GEDCOM carries the file
     # name of a portrait but not the picture, so a tree read from one would

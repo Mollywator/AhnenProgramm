@@ -713,6 +713,7 @@ html[data-edit] .editonly.flex{display:flex !important}
     <button class="btn" id="checkBtn">Prüfbericht</button>
     <button class="btn editonly" id="importBtn">Importieren</button>
     <button class="btn editonly" id="exportBtn">Exportieren</button>
+    <button class="btn editonly" id="optionsBtn">Optionen</button>
     <button class="btn" id="rootBtn"></button>
     <button class="btn" id="themeBtn">Abendlicht</button>
   </div>
@@ -3979,6 +3980,68 @@ async function dropTree(){
   }catch(err){ say("Nicht entfernt – " + err.message, true); }
 }
 
+/* ---- what this program is, and where it keeps things ----------------------
+   One page answering the questions somebody asks when something is off: which
+   version am I running, which shape are my files in, where are they, and is
+   there a newer one.  All four used to be answerable only by reading source
+   code or a text file in a folder. */
+function optionsHTML(){
+  const u = (EDIT && EDIT.umgewandelt) || null;
+  return `<div class="scrim" id="scrim">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Optionen">
+    <div class="sheet-head" style="grid-template-columns:minmax(0,1fr) auto">
+      <div>
+        <div class="kicker">Optionen</div>
+        <h2>Über dieses Programm</h2>
+      </div>
+      <button class="closer" data-close="1" aria-label="Schließen">×</button>
+    </div>
+    <div class="sheet-body">
+      <div class="sec"><h3>Programm</h3>
+        <ul class="movelist">
+          <li><b>Version ${esc(EDIT.programmversion || "")}</b><small>Stammbaum</small></li>
+          <li><b>Datenformat ${EDIT.format}</b><small>der Aufbau, in dem deine Stammbäume
+            gespeichert werden. Ältere werden beim Öffnen umgewandelt, mit Sicherung</small></li>
+        </ul>
+      </div>
+
+      <div class="sec"><h3>Wo alles liegt</h3>
+        <p class="hintline" style="margin:0 0 10px;font-family:var(--mono,var(--sans))">
+          ${esc(EDIT.datenordner || "")}</p>
+        <p class="hintline">${esc(EDIT.datenordner_grund || "")}. Ändern lässt sich das
+          unter <b>Stammbäume → Wo alles liegt</b>.</p>
+        <div style="margin-top:12px"><button class="btn" id="openData">Ordner öffnen</button></div>
+      </div>
+
+      ${u ? `<div class="sec"><h3>Zuletzt umgewandelt</h3>
+        <p class="prose">Dieser Stammbaum lag in Format ${u.von} vor und wurde am
+          ${esc(String(u.am).slice(0,10).split("-").reverse().join("."))} auf Format
+          ${u.auf} gebracht.</p>
+        <ul class="movelist" style="margin-top:10px">${(u.schritte || []).map(s =>
+          `<li><b>${esc(s)}</b></li>`).join("")}</ul>
+        <p class="hintline" style="margin-top:10px">Der Stand davor liegt unverändert in
+          <b>sicherung\\format\\</b> im Ordner dieses Stammbaums und wird nie automatisch
+          gelöscht.</p></div>` : ""}
+
+      <div class="sec"><h3>Neuere Fassung</h3>
+        <p class="prose">Das Programm fragt von sich aus nirgendwo nach – es hat keinen
+          Netzzugang und soll auch keinen haben. Der Knopf öffnet die Seite mit den
+          Fassungen im Browser; nachsehen musst du selbst.</p>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" id="checkUpdate">Nach Updates sehen</button>
+        </div>
+        <p class="hintline" style="margin-top:10px;font-family:var(--mono,var(--sans))">
+          ${esc(EDIT.repo || "")}</p>
+      </div>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn" data-close="1">Schließen</button>
+      <span class="grow"></span>
+      <span class="saveinfo" id="optInfo"></span>
+    </div>
+  </div></div>`;
+}
+
 /* ---- bringing a tree in --------------------------------------------------- */
 let importFile = null;
 
@@ -4493,6 +4556,13 @@ if(EDIT){
     document.body.style.overflow = "hidden";
   });
 
+  document.getElementById("optionsBtn").addEventListener("click", () => {
+    if(!editGuard()) return;
+    closeSheetHard();
+    document.body.insertAdjacentHTML("beforeend", optionsHTML());
+    document.body.style.overflow = "hidden";
+  });
+
   document.addEventListener("input", e => {
     const pick = e.target.closest(".pickinput");
     if(pick){ openMenu(pick.closest(".picker")); return; }
@@ -4555,6 +4625,18 @@ if(EDIT){
     if(quelle){ setImportQuelle(quelle.dataset.quelle); return; }
     const waehler = e.target.closest("[data-pick]");
     if(waehler){ ordnerWaehlen(waehler.dataset.pick, waehler.dataset.erkannt); return; }
+    if(e.target.closest("#openData")){
+      api("/api/open-folder?k=" + encodeURIComponent(EDIT.token), {was: "daten"})
+        .catch(err => say(err.message, true));
+      return;
+    }
+    if(e.target.closest("#checkUpdate")){
+      const wohin = document.getElementById("optInfo");
+      api("/api/updates?k=" + encodeURIComponent(EDIT.token))
+        .then(() => { if(wohin) wohin.textContent = "Im Browser geöffnet."; })
+        .catch(err => say("Ging nicht auf – " + err.message, true));
+      return;
+    }
     if(e.target.closest("#firstPerson")){ openEditor(null); return; }
     if(e.target.closest("#takeOver")){ takeOver(); return; }
     if(e.target.closest("#doUmzug")){ runUmzug(); return; }

@@ -1,14 +1,13 @@
 # ---------------------------------------------------------------------------
 #  Alles, was eine Familie betrifft, bleibt auf diesem Rechner.
 #
-#  Diese Datei ist die erste von zwei Sperren.  Die zweite ist die Namens-
-#  pruefung "Namen pruefen.bat".  Sie liegt bewusst neben den Daten und nicht
-#  hier - sie muss die Baeume lesen, um ihre Arbeit zu tun, und darf deshalb
-#  selbst nie mitgehen.
+#  Diese Datei ist die erste von zwei Sperren.  Die zweite laeuft ausserhalb
+#  dieses Ordners und wird von Hand vor einem Commit aufgerufen; sie faengt,
+#  was eine Ignore-Liste nicht fangen kann - einen Namen, den jemand beim
+#  Programmieren in einen Kommentar tippt.
 #
-#  Sie faengt, was eine Ignore-Liste nicht fangen kann: einen Namen, den jemand
-#  beim Programmieren in einen Kommentar tippt.  Wer eine Zeile von hier
-#  entfernt, hebelt eine bewusste Entscheidung aus - dann bitte wissen, warum.
+#  Wer eine Zeile von hier entfernt, hebelt eine bewusste Entscheidung aus -
+#  dann bitte wissen, warum.
 # ---------------------------------------------------------------------------
 
 # Der Genealogiebericht und alles, was daraus gerechnet wurde
