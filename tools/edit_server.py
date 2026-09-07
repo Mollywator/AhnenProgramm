@@ -329,6 +329,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.api_set_root()
             if route == "/api/set-data-dir":
                 return self.api_set_data_dir()
+            if route == "/api/pruefen":
+                return self.api_pruefen()
             if route == "/api/umziehen":
                 return self.api_umziehen()
             if route == "/api/open-folder":
@@ -426,17 +428,41 @@ class Handler(http.server.BaseHTTPRequestHandler):
         target = os.path.abspath(os.path.expandvars(os.path.expanduser(wanted)))
         if os.path.isfile(target):
             return self.fail(400, "Das ist eine Datei, kein Ordner.")
+
+        # What has actually been pointed at?  Somebody who knows where their
+        # family is should not have to know which of three nested folders the
+        # program calls the data folder - it can see that itself.
+        was = store.identify(target)
+        if was["art"] in ("baum", "baeume"):
+            target = was["ordner"]
+        elif was["art"] == "fehlt":
+            return self.fail(400, "Diesen Ordner gibt es nicht: " + target)
+
         if not store.writable(target):
             return self.fail(400, "Dorthin kann nicht geschrieben werden: " + target)
         if os.path.abspath(store.data_dir()) == target:
-            return self.send_json({"ok": True, "ordner": target, "verschoben": []})
+            return self.send_json({"ok": True, "ordner": target, "verschoben": [],
+                                   "erkannt": was})
 
-        if payload.get("verschieben"):
-            moved = store.move_data(target)
-        else:
-            store.write_pointer(target)
-            moved = []
-        self.send_json({"ok": True, "ordner": target, "verschoben": moved})
+        try:
+            if payload.get("verschieben"):
+                moved = store.move_data(target)
+            else:
+                store.write_pointer(target)
+                moved = []
+        except ValueError as err:
+            return self.fail(400, str(err))
+        self.send_json({"ok": True, "ordner": target, "verschoben": moved,
+                        "erkannt": was})
+
+    def api_pruefen(self) -> None:
+        """Say what a folder is, without touching anything.
+
+        Called while the person is still typing, so the dialog can say "data
+        folder with three trees" before they press anything at all.
+        """
+        wanted = (self.body().get("pfad") or "").strip()
+        self.send_json({"ok": True, "erkannt": store.identify(wanted)})
 
     def api_new(self) -> None:
         """Start an empty tree - what another family sees on their first day."""

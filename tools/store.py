@@ -751,6 +751,97 @@ Editor unter Stammbaeume, oder durch die Datei %s.
 """
 
 
+def looks_like_tree(path: str) -> bool:
+    return os.path.isfile(os.path.join(path, TREE_FILE))
+
+
+def holds_trees(path: str) -> list[str]:
+    """The tree folders directly inside `path`, whatever they are called."""
+    if not os.path.isdir(path):
+        return []
+    out = []
+    for name in sorted(os.listdir(path)):
+        if name in (BIN_DIRNAME,):
+            continue
+        if looks_like_tree(os.path.join(path, name)):
+            out.append(name)
+    return out
+
+
+def identify(path: str) -> dict:
+    """Work out what folder somebody has just pointed at.
+
+    Asking a person for "the data folder" asks them to know a distinction the
+    program invented.  They know where their family is - and that might be the
+    data folder, the `baeume` folder inside it, or one single tree.  All three
+    are the same answer at different depths, and the program can see which is
+    which: a tree has a `baum.json`, a folder of trees has folders that do,
+    and the data folder has `einstellungen.json` or trees beside it.
+
+    Returns what was recognised, and which folder the program should actually
+    use.  Recognising costs nothing and is done before anything moves - the
+    alternative is what happened on 07.09.2026, when a tree folder was given as
+    the data folder and the program set about moving the data folder into
+    itself, one entry at a time, until it hit the one it could not.
+    """
+    path = os.path.abspath(os.path.expandvars(os.path.expanduser(path or "")))
+    out = {"gefragt": path, "ordner": path, "art": "unbekannt",
+           "baeume": [], "hinweis": ""}
+
+    if not path or not os.path.isdir(path):
+        out["art"] = "fehlt"
+        out["hinweis"] = "Diesen Ordner gibt es nicht."
+        return out
+
+    # A single tree: the data folder is one or two levels up
+    if looks_like_tree(path):
+        eltern = os.path.dirname(path)
+        grosseltern = os.path.dirname(eltern)
+        wurzel = grosseltern if os.path.basename(eltern) == TREES_DIRNAME else eltern
+        out.update({"art": "baum", "ordner": wurzel,
+                    "baeume": holds_trees(wurzel) or holds_trees(
+                        os.path.join(wurzel, TREES_DIRNAME)),
+                    "hinweis": "Das ist ein einzelner Stammbaum. Der Datenordner"
+                               " ist der Ordner darüber."})
+        return out
+
+    drin = holds_trees(path)
+
+    # The `baeume` folder of the older arrangement
+    if os.path.basename(path) == TREES_DIRNAME and drin:
+        out.update({"art": "baeume", "ordner": os.path.dirname(path), "baeume": drin,
+                    "hinweis": "Das ist der Ordner mit den Stammbäumen. Der"
+                               " Datenordner ist der Ordner darüber."})
+        return out
+
+    # The data folder itself: trees beside it, or its settings file, or both
+    hat_einstellungen = os.path.isfile(os.path.join(path, SETTINGS_FILE))
+    alt = holds_trees(os.path.join(path, TREES_DIRNAME))
+    if drin or alt or hat_einstellungen:
+        out.update({"art": "daten", "ordner": path, "baeume": drin or alt})
+        anzahl = len(drin or alt)
+        out["hinweis"] = ("Datenordner mit %s."
+                          % ("einem Stammbaum" if anzahl == 1
+                             else "%d Stammbäumen" % anzahl)) if anzahl else \
+            "Datenordner - er ist noch leer."
+        return out
+
+    out.update({"art": "leer",
+                "hinweis": "Hier liegt noch kein Stammbaum. Der Ordner kann"
+                           " trotzdem benutzt werden - er wird dann angelegt."})
+    return out
+
+
+def inside(child: str, parent: str) -> bool:
+    """Is `child` the same folder as `parent`, or somewhere inside it?"""
+    child = os.path.abspath(child)
+    parent = os.path.abspath(parent)
+    try:
+        return os.path.commonpath([child, parent]) == parent
+    except ValueError:                       # different drives on Windows
+        return False
+
+
 def move_data(target: str) -> list[str]:
     """Move everything that is data into `target`, and remember it is there.
 
@@ -768,8 +859,22 @@ def move_data(target: str) -> list[str]:
     family's data with another's.
     """
     target = os.path.abspath(target)
+
+    # Asked before anything moves, because the answer used to arrive halfway
+    # through: on 07.09.2026 a tree folder was given as the destination, and
+    # the program carried three entries into it before reaching the one that
+    # contained the destination itself. Those three stayed where they had been
+    # put, and the person was left with a half-moved data folder and a message
+    # about directories.
+    current_now = os.path.abspath(data_dir())
+    if inside(target, current_now) and target != current_now:
+        raise ValueError(
+            "Dieser Ordner liegt im Datenordner selbst - dorthin kann er nicht "
+            "umziehen. Gemeint war vermutlich der Ordner darüber: %s" % current_now)
+
     os.makedirs(target, exist_ok=True)
     moved: list[str] = []
+    done: list[tuple[str, str]] = []          # (from, to) for putting back
 
     def carry(source: str, name: str) -> None:
         destination = os.path.join(target, name)
@@ -777,26 +882,47 @@ def move_data(target: str) -> list[str]:
             return
         os.makedirs(os.path.dirname(destination), exist_ok=True)
         shutil.move(source, destination)
+        done.append((destination, source))
         moved.append(name)
 
-    # 1 - wherever the data lives at this moment
-    current = os.path.abspath(data_dir())
-    if os.path.isdir(current) and current != target:
-        for name in sorted(os.listdir(current)):
-            carry(os.path.join(current, name), name)
-        if not os.listdir(current):
-            os.rmdir(current)
+    def put_back() -> None:
+        """Undo what this call moved, newest first.
 
-    # 2 - the old places beside the program, for the first move out of a repo
-    old_root = os.path.join(program_dir(), FOLDER_NAME)
-    if os.path.isdir(old_root) and os.path.abspath(old_root) != target:
-        for name in sorted(os.listdir(old_root)):
-            carry(os.path.join(old_root, name), name)
-        if not os.listdir(old_root):
-            os.rmdir(old_root)
+        A move that stops halfway is worse than one that never started: the
+        person cannot tell what is where any more, and neither can the program.
+        """
+        for came_to, came_from in reversed(done):
+            try:
+                if os.path.exists(came_to) and not os.path.exists(came_from):
+                    os.makedirs(os.path.dirname(came_from), exist_ok=True)
+                    shutil.move(came_to, came_from)
+            except OSError:
+                continue
 
-    for old_name, new_name in MOVABLE:
-        carry(os.path.join(program_dir(), old_name), new_name)
+    try:
+        # 1 - wherever the data lives at this moment
+        current = os.path.abspath(data_dir())
+        if os.path.isdir(current) and current != target:
+            for name in sorted(os.listdir(current)):
+                carry(os.path.join(current, name), name)
+            if not os.listdir(current):
+                os.rmdir(current)
+
+        # 2 - the old places beside the program, for the first move out of a repo
+        old_root = os.path.join(program_dir(), FOLDER_NAME)
+        if os.path.isdir(old_root) and os.path.abspath(old_root) != target:
+            for name in sorted(os.listdir(old_root)):
+                carry(os.path.join(old_root, name), name)
+            if not os.listdir(old_root):
+                os.rmdir(old_root)
+
+        for old_name, new_name in MOVABLE:
+            carry(os.path.join(program_dir(), old_name), new_name)
+    except (OSError, shutil.Error) as err:
+        put_back()
+        raise ValueError(
+            "Der Umzug ist abgebrochen und wurde zurückgenommen - es liegt "
+            "alles wieder, wo es war. Grund: %s" % err) from err
 
     write_pointer(target)
 
@@ -861,13 +987,15 @@ def pending_move() -> dict | None:
             here = os.path.join(old_root, name)
             if name == BIN_DIRNAME or not os.path.isfile(os.path.join(here, TREE_FILE)):
                 continue
-            title = name
+            title, people = name, 0
             try:
                 with open(os.path.join(here, TREE_FILE), encoding="utf-8") as fh:
-                    title = (json.load(fh).get("meta") or {}).get("title") or name
+                    tree = json.load(fh)
+                title = (tree.get("meta") or {}).get("title") or name
+                people = len(tree.get("people") or [])
             except (OSError, ValueError):
                 pass
-            trees.append({"slug": name, "titel": title,
+            trees.append({"slug": name, "titel": title, "personen": people,
                           "von": os.path.join(TREES_DIRNAME, name),
                           "nach": free_folder(title, name)})
 
@@ -880,11 +1008,19 @@ def pending_move() -> dict | None:
 
     # The loose folders were built from one report and belong to one tree: the
     # one that is open. Said out loud rather than guessed at silently.
+    # Which tree do the loose folders belong to?  They were built from one
+    # report, so the answer is the tree that report produced - and that is the
+    # one with people in it, not whichever happens to be open.  "Open" is a
+    # setting that moves: on 07.09.2026 a failed move left it pointing at an
+    # empty tree, and going by it would have carried a family's report and
+    # portraits into a folder belonging to nobody.
     owner = None
-    if loose:
-        open_now = settings().get("offen")
-        owner = next((t for t in trees if t["slug"] == open_now),
-                     trees[0] if trees else None)
+    if loose and trees:
+        with_people = sorted(trees, key=lambda t: -t["personen"])
+        owner = with_people[0] if with_people[0]["personen"] else None
+        if owner is None:
+            open_now = settings().get("offen")
+            owner = next((t for t in trees if t["slug"] == open_now), trees[0])
     return {"baeume": trees, "lose": loose,
             "gehoeren_zu": owner["titel"] if owner else None,
             "ziel": owner["nach"] if owner else None}

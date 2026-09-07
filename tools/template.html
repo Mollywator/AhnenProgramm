@@ -628,6 +628,13 @@ html[data-edit] .editonly.flex{display:flex !important}
 /* the guessed-at second parent: on top, and marked as a guess */
 .pickmenu .suggest{background:var(--paper-2);border-bottom:1px solid var(--rule-2)}
 .pickmenu .suggest small{color:var(--accent)}
+/* what the program made of a folder somebody typed - shown while they type */
+.erkannt{
+  margin:8px 0 0;font-family:var(--sans);font-size:12.5px;line-height:1.5;
+  color:var(--ink-2);min-height:1.2em;
+}
+.erkannt[data-art="daten"],.erkannt[data-art="baeume"],.erkannt[data-art="baum"]{color:var(--accent)}
+.erkannt[data-art="fehlt"]{color:var(--warn,var(--ink-2))}
 /* The spouse, offered by name under the search field - one click, no typing
    and no menu to open first. */
 .offers{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
@@ -3818,7 +3825,10 @@ function treesHTML(){
           mit ihm weitergegeben werden.</p>
         <label class="field"><span>Datenordner</span>
           <input id="dataDir" value="${esc(EDIT.datenordner || "")}"></label>
-        <p class="hintline" style="margin:8px 0 0">Aktuell ${esc(EDIT.datenordner_grund || "")}.</p>
+        <p class="erkannt" id="dataDirErkannt"></p>
+        <p class="hintline" style="margin:8px 0 0">Aktuell ${esc(EDIT.datenordner_grund || "")}.
+          Es darf auch der Ordner mit den Bäumen oder ein einzelner Baum angegeben
+          werden – das Programm erkennt, was gemeint ist.</p>
         <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn" id="moveData">Dorthin umziehen</button>
           <button class="btn" id="pointData">Nur dorthin zeigen</button>
@@ -3871,6 +3881,34 @@ async function renameTree(){
    somebody has just installed the program and their trees are already
    somewhere.  The second one only ever points - moving on a first start would
    move a folder the person has not even seen yet. */
+/* ---- what did somebody just point at? ------------------------------------
+   Asked while they type, so the dialog can say "data folder with three trees"
+   before anything is pressed.  A person knows where their family is; which of
+   three nested folders the program calls the data folder is the program's
+   distinction, and it can work that out itself. */
+let pruefLauf = null;
+
+async function pruefeOrdner(feld, anzeige){
+  const field = document.getElementById(feld);
+  const wohin = document.getElementById(anzeige);
+  if(!field || !wohin) return;
+  const wanted = field.value.trim();
+  if(!wanted){ wohin.textContent = ""; return; }
+  clearTimeout(pruefLauf);
+  pruefLauf = setTimeout(async () => {
+    try{
+      const out = await api("/api/pruefen?k=" + encodeURIComponent(EDIT.token),
+                            {pfad: wanted});
+      const e = out.erkannt || {};
+      const teile = [e.hinweis || ""];
+      if(e.ordner && e.ordner !== e.gefragt) teile.push("Benutzt wird: " + e.ordner);
+      if((e.baeume || []).length) teile.push("Gefunden: " + e.baeume.join(" · "));
+      wohin.textContent = teile.filter(Boolean).join("  —  ");
+      wohin.dataset.art = e.art || "";
+    }catch(_){ wohin.textContent = ""; }
+  }, 250);
+}
+
 async function setDataDir(move, feld){
   const field = document.getElementById(feld || "dataDir");
   const wanted = field ? field.value.trim() : "";
@@ -4091,6 +4129,7 @@ function startHTML(){
         <label class="field" style="margin-top:10px"><span>Ordner</span>
           <input id="startOrdner" spellcheck="false"
                  value="${esc((EDIT && EDIT.datenordner) || "")}"></label>
+        <p class="erkannt" id="startErkannt"></p>
         <button class="btn" id="startZeigen" style="margin-top:10px">Diesen nehmen</button>
         <p class="hintline" style="margin-top:8px">Das Programm sucht von sich aus
           nirgendwo sonst. Im Moment schaut es hier:<br>${esc((EDIT && EDIT.datenordner) || "")}</p>
@@ -4253,6 +4292,8 @@ if(EDIT){
   document.addEventListener("input", e => {
     const pick = e.target.closest(".pickinput");
     if(pick){ openMenu(pick.closest(".picker")); return; }
+    if(e.target.id === "dataDir"){ pruefeOrdner("dataDir", "dataDirErkannt"); return; }
+    if(e.target.id === "startOrdner"){ pruefeOrdner("startOrdner", "startErkannt"); return; }
     const field = e.target.closest("[data-k]");
     if(!field || !draft || !field.closest("#editForm")) return;
     setPath(draft, field.dataset.k, readInput(field));
