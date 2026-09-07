@@ -127,4 +127,71 @@ def write(store, slug: str | None = None) -> str:
     with io.open(tmp, "w", encoding="utf-8", newline="") as fh:
         fh.write(text)
     os.replace(tmp, path)
+
+    uebersicht(store)
+    return path
+
+
+UEBERSICHT_FILE = "Stammbäume in diesem Ordner.txt"
+
+
+def uebersicht(store) -> str:
+    """One page saying what is in this data folder, for whoever opens it.
+
+    The program does not need it: it finds the trees by looking for a
+    `baum.json` in every folder, which is why the folders may be called
+    anything and why a settings file that goes missing costs nothing.  A person
+    opening the folder in five years has no such method, and `einstellungen.json`
+    is not written for them.
+
+    So this is written for them, and named the way they would ask the question.
+    Rewritten on every save, like the per-tree list, and never worth losing a
+    save over.
+    """
+    root = store.data_dir()
+    path = os.path.join(root, UEBERSICHT_FILE)
+
+    lines = ["Stammbäume in diesem Ordner",
+             "Stand %s" % datetime.datetime.now().strftime("%d.%m.%Y um %H:%M"),
+             "",
+             "Jeder Ordner hier drin ist ein Stammbaum. Was ihn dazu macht,",
+             "ist die baum.json darin - nicht sein Name. Der Ordner darf",
+             "heissen, wie du willst, und darf auch woanders hin: dem Programm",
+             "wird einmal gesagt, wo dieser Ordner liegt, und es findet alles",
+             "Weitere von selbst.",
+             "",
+             "Diese Datei wird bei jedem Speichern neu geschrieben.",
+             "=" * 66,
+             ""]
+
+    slugs = store.all_slugs()
+    if not slugs:
+        lines.append("")
+        lines.append("   (noch kein Stammbaum darin)")
+    for slug in slugs:
+        ordner = store.tree_dir(slug, create=False)
+        kopf = store.heading(slug)
+        lines.append("")
+        lines.append("%s" % (kopf.get("titel") or slug))
+        lines.append("-" * 66)
+        lines.append("  Ordner    %s" % os.path.basename(ordner))
+        lines.append("  Personen  %d" % (kopf.get("personen") or 0))
+        if kopf.get("fotos"):
+            lines.append("  Portraits %d" % kopf["fotos"])
+        if kopf.get("gespeichert"):
+            lines.append("  Zuletzt   %s"
+                         % str(kopf["gespeichert"])[:16].replace("T", " "))
+        liste = os.path.join(ordner, LIST_FILE)
+        if os.path.isfile(liste):
+            lines.append("  Wer darin steht: %s\\%s"
+                         % (os.path.basename(ordner), LIST_FILE))
+
+    text = "\n".join(lines) + "\n"
+    tmp = path + ".neu"
+    try:
+        with io.open(tmp, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except OSError:
+        return ""
     return path

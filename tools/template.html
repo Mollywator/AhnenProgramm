@@ -635,6 +635,17 @@ html[data-edit] .editonly.flex{display:flex !important}
 }
 .erkannt[data-art="daten"],.erkannt[data-art="baeume"],.erkannt[data-art="baum"]{color:var(--accent)}
 .erkannt[data-art="fehlt"]{color:var(--warn,var(--ink-2))}
+/* File or folder - the same dialog answers both, and which one is being
+   answered has to be visible at a glance rather than guessed from the fields. */
+.quelle{display:flex;gap:8px;flex-wrap:wrap}
+.quellknopf.an{border-color:var(--accent);color:var(--accent)}
+.ordnerzeile{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap}
+.ordnerzeile input{
+  flex:1 1 320px;min-width:0;font:inherit;font-size:15px;padding:7px 10px;
+  border:1px solid var(--rule);border-radius:2px;background:var(--paper);
+  color:var(--ink);font-family:var(--mono,var(--sans));
+}
+.ordnerzeile .btn{flex:0 0 auto}
 /* The spouse, offered by name under the search field - one click, no typing
    and no menu to open first. */
 .offers{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
@@ -3824,8 +3835,11 @@ function treesHTML(){
           Bäume, Fotos, Unterlagen und Exporte liegen hier – <b>nicht</b> beim Programm.
           Das ist Absicht: was nicht im Programmordner liegt, kann auch nicht versehentlich
           mit ihm weitergegeben werden.</p>
-        <label class="field"><span>Datenordner</span>
-          <input id="dataDir" value="${esc(EDIT.datenordner || "")}"></label>
+        <div class="ordnerzeile">
+          <input id="dataDir" value="${esc(EDIT.datenordner || "")}" spellcheck="false">
+          <button type="button" class="btn" data-pick="dataDir"
+                  data-erkannt="dataDirErkannt">Ordner wählen …</button>
+        </div>
         <p class="erkannt" id="dataDirErkannt"></p>
         <p class="hintline" style="margin:8px 0 0">Aktuell ${esc(EDIT.datenordner_grund || "")}.
           Es darf auch der Ordner mit den Bäumen oder ein einzelner Baum angegeben
@@ -3889,12 +3903,38 @@ async function renameTree(){
    distinction, and it can work that out itself. */
 let pruefLauf = null;
 
-async function pruefeOrdner(feld, anzeige){
+/* The Windows folder dialog, asked for by the program rather than by the page:
+   a browser hands over a file's bytes and never its path, and a folder has no
+   bytes at all.  The typed field stays beside it - a path pasted out of an
+   Explorer address bar is often the quicker way, and this has to work on a
+   machine where the dialog cannot open. */
+async function ordnerWaehlen(feld, anzeige){
+  const field = document.getElementById(feld);
+  if(!field) return;
+  try{
+    const out = await api("/api/waehle-ordner?k=" + encodeURIComponent(EDIT.token),
+                          {start: field.value.trim()});
+    if(!out.pfad) return;                      // cancelled - leave the field alone
+    field.value = out.pfad;
+    const wohin = anzeige ? document.getElementById(anzeige) : null;
+    const erkannt = out.erkannt || {};
+    if(wohin){
+      const teile = [erkannt.hinweis || ""];
+      if(erkannt.ordner && erkannt.ordner !== erkannt.gefragt)
+        teile.push("Benutzt wird: " + erkannt.ordner);
+      wohin.textContent = teile.filter(Boolean).join("  —  ");
+      wohin.dataset.art = erkannt.art || "";
+    }
+    if(feld === "importOrdner") zeigeFunde(erkannt);
+  }catch(err){ say("Der Ordner-Dialog ging nicht auf – " + err.message, true); }
+}
+
+async function pruefeOrdner(feld, anzeige, dann){
   const field = document.getElementById(feld);
   const wohin = document.getElementById(anzeige);
   if(!field || !wohin) return;
   const wanted = field.value.trim();
-  if(!wanted){ wohin.textContent = ""; return; }
+  if(!wanted){ wohin.textContent = ""; if(dann) dann(null); return; }
   clearTimeout(pruefLauf);
   pruefLauf = setTimeout(async () => {
     try{
@@ -3903,10 +3943,13 @@ async function pruefeOrdner(feld, anzeige){
       const e = out.erkannt || {};
       const teile = [e.hinweis || ""];
       if(e.ordner && e.ordner !== e.gefragt) teile.push("Benutzt wird: " + e.ordner);
-      if((e.baeume || []).length) teile.push("Gefunden: " + e.baeume.join(" · "));
+      // Named by family rather than by folder wherever the trees have been
+      // read; the folder name is what the list below already says.
+      if(!dann && (e.baeume || []).length) teile.push("Gefunden: " + e.baeume.join(" · "));
       wohin.textContent = teile.filter(Boolean).join("  —  ");
       wohin.dataset.art = e.art || "";
-    }catch(_){ wohin.textContent = ""; }
+      if(dann) dann(e);
+    }catch(_){ wohin.textContent = ""; if(dann) dann(null); }
   }, 250);
 }
 
@@ -3947,32 +3990,81 @@ function importHTML(){
         <div class="kicker">Importieren</div>
         <h2>Einen Stammbaum einlesen</h2>
         <div class="node-meta" style="font-size:14px;margin-top:4px">
-          Eine <b>Stammbaum-Datei</b> aus diesem Programm, oder eine <b>GEDCOM</b> aus
-          einem beliebigen anderen – MyHeritage, Ancestry, Gramps, Family Tree Maker.</div>
+          Eine <b>Datei</b> – aus diesem Programm oder eine GEDCOM aus einem beliebigen
+          anderen. Oder ein <b>Ordner</b>: einer mit einem Stammbaum darin, oder eine
+          ganze Ablage mit mehreren.</div>
       </div>
       <button class="closer" data-close="1" aria-label="Schließen">×</button>
     </div>
     <div class="sheet-body">
-      <div class="sec"><h3>Datei</h3>
-        <button type="button" class="btn" id="pickImport">Datei wählen …</button>
-        <p class="hintline" id="importName" style="margin-top:10px">Noch keine gewählt.</p>
+      <div class="sec"><h3>Woher</h3>
+        <div class="quelle" role="tablist">
+          <button type="button" class="btn quellknopf an" data-quelle="datei">Aus einer Datei</button>
+          <button type="button" class="btn quellknopf" data-quelle="ordner">Aus einem Ordner</button>
+        </div>
       </div>
-      <div class="sec"><h3>Und dann?</h3>
-        <label class="field"><span>Wohin damit</span>
-          <select id="importMode">
-            <option value="neu">Als eigenen Stammbaum – bleibt danach im Programm</option>
-            <option value="dazu">In diesen hinein – beide Familien in einem Baum</option>
-            <option value="ersetzen">Diesen ersetzen – der jetzige verschwindet</option>
-          </select></label>
-        <p class="hintline" style="margin-top:10px">
-          <b>Als eigenen Stammbaum</b> ist der Normalfall: einmal einlesen, danach ist er
-          da und über den Namen oben links erreichbar. Einlesen musst du ihn nie wieder.</p>
-        <p class="hintline" style="margin-top:8px">
-          <b>In diesen hinein</b> ist der Weg, wenn du deine Familie hast und jemand
-          anderes seine bringt und beide zusammengehören sollen: alle kommen mit eigenen
-          Nummern hinzu, niemand wird automatisch zusammengelegt. Danach verbindest du die
-          beiden Seiten selbst über die Ehe, und die Verwandtschaft rechnet sich neu.
-          Namensgleiche Personen melde ich – entscheiden musst du.</p>
+
+      <div id="quelleDatei">
+        <div class="sec"><h3>Datei</h3>
+          <button type="button" class="btn" id="pickImport">Datei wählen …</button>
+          <p class="hintline" id="importName" style="margin-top:10px">Noch keine gewählt.</p>
+          <p class="hintline" style="margin-top:8px">Eine <b>Stammbaum-Datei</b> aus diesem
+            Programm, oder eine <b>GEDCOM</b> – MyHeritage, Ancestry, Gramps, Family Tree
+            Maker.</p>
+        </div>
+        <div class="sec"><h3>Und dann?</h3>
+          <label class="field"><span>Wohin damit</span>
+            <select id="importMode">
+              <option value="neu">Als eigenen Stammbaum – bleibt danach im Programm</option>
+              <option value="dazu">In diesen hinein – beide Familien in einem Baum</option>
+              <option value="ersetzen">Diesen ersetzen – der jetzige verschwindet</option>
+            </select></label>
+          <p class="hintline" style="margin-top:10px">
+            <b>Als eigenen Stammbaum</b> ist der Normalfall: einmal einlesen, danach ist er
+            da und über den Namen oben links erreichbar. Einlesen musst du ihn nie wieder.</p>
+          <p class="hintline" style="margin-top:8px">
+            <b>In diesen hinein</b> ist der Weg, wenn du deine Familie hast und jemand
+            anderes seine bringt und beide zusammengehören sollen: alle kommen mit eigenen
+            Nummern hinzu, niemand wird automatisch zusammengelegt. Danach verbindest du die
+            beiden Seiten selbst über die Ehe, und die Verwandtschaft rechnet sich neu.
+            Namensgleiche Personen melde ich – entscheiden musst du.</p>
+        </div>
+      </div>
+
+      <div id="quelleOrdner" hidden>
+        <div class="sec"><h3>Ordner</h3>
+          <div class="ordnerzeile">
+            <input id="importOrdner" spellcheck="false"
+                   placeholder="C:\\Users\\…\\Stammbaumablage">
+            <button type="button" class="btn" data-pick="importOrdner"
+                    data-erkannt="importErkannt">Ordner wählen …</button>
+          </div>
+          <p class="erkannt" id="importErkannt"></p>
+          <ul class="movelist" id="importFunde" hidden></ul>
+          <p class="hintline" style="margin-top:10px">Es darf der Ordner mit <b>allen</b>
+            Stammbäumen sein oder <b>ein einzelner</b> Stammbaum – ich sehe selbst, was es
+            ist. Ein Ordner ist ein Stammbaum, wenn eine <b>baum.json</b> darin liegt; wie
+            er heißt, ist gleich.</p>
+        </div>
+        <div class="sec"><h3>Und dann?</h3>
+          <label class="field"><span>Wohin damit</span>
+            <select id="ordnerMode">
+              <option value="zeigen">Dorthin zeigen – ab jetzt dort weiterarbeiten</option>
+              <option value="kopieren">Hierher kopieren – zu dem, was schon da ist</option>
+            </select></label>
+          <p class="erkannt" id="importWarnung" data-art="fehlt" hidden></p>
+          <p class="hintline" style="margin-top:10px">
+            <b>Dorthin zeigen</b> ist der Weg nach einer Neuinstallation oder auf einem
+            zweiten Rechner: nichts wird kopiert und nichts verschoben, das Programm
+            arbeitet ab jetzt in diesem Ordner. Alle Stammbäume darin sind sofort da.</p>
+          <p class="hintline" style="margin-top:8px">
+            <b>Hierher kopieren</b> ist der Weg, wenn dir jemand seinen Ordner gibt: es
+            kommt eine Kopie zu deinen Stammbäumen dazu, sein Ordner bleibt unangetastet.
+            Zeigst du auf einen <b>einzelnen</b> Stammbaum, kommt genau der – die Ordner
+            daneben sehe ich mir dann gar nicht erst an.</p>
+          <p class="hintline" style="margin-top:8px">Kopieren zweimal ergibt zwei
+            Stammbäume. Zusammengelegt wird nie etwas von selbst.</p>
+        </div>
       </div>
     </div>
     <div class="sheet-foot">
@@ -3984,7 +4076,114 @@ function importHTML(){
   </div></div>`;
 }
 
+/* Which half of the dialog is showing.  Two ways in rather than two dialogs,
+   because from where the person stands it is one question - "ich habe da was,
+   nimm das" - and only the program cares that one of them arrives as bytes and
+   the other as a path. */
+let importQuelle = "datei";
+
+function setImportQuelle(which){
+  importQuelle = which;
+  for(const knopf of document.querySelectorAll(".quellknopf"))
+    knopf.classList.toggle("an", knopf.dataset.quelle === which);
+  const datei = document.getElementById("quelleDatei");
+  const ordner = document.getElementById("quelleOrdner");
+  if(datei) datei.hidden = which !== "datei";
+  if(ordner) ordner.hidden = which !== "ordner";
+  const button = document.getElementById("doImport");
+  if(button) button.textContent = which === "ordner" ? "Übernehmen" : "Einlesen";
+  if(which === "ordner"){
+    const feld = document.getElementById("importOrdner");
+    if(feld) feld.focus();
+  }
+}
+
+/* What a folder holds, listed by family name rather than by folder name: the
+   folder is called whatever its owner called it, and that is precisely why the
+   program stopped going by the name.
+
+   This also decides which of the two answers is offered first, because the
+   right one follows from what was pointed at.  A whole data folder is somebody
+   putting an installation back and wants pointing at.  A single tree is
+   somebody handing over one family and wants copying - pointing at one tree
+   cannot mean "only this one", because a tree folder is not a data folder and
+   the program would take the folder above it, neighbours and all.  That is
+   said out loud rather than left to be discovered. */
+function zeigeFunde(erkannt){
+  const liste = document.getElementById("importFunde");
+  const wahl = document.getElementById("ordnerMode");
+  const warnung = document.getElementById("importWarnung");
+  if(!liste) return;
+  const drin = (erkannt && erkannt.inhalt) || [];
+  liste.hidden = !drin.length;
+  liste.innerHTML = drin.map(t => `<li><b>${esc(t.titel)}</b><small>${
+    t.personen} ${t.personen === 1 ? "Person" : "Personen"} · Ordner ${esc(t.ordner)}</small></li>`).join("");
+
+  const einzeln = erkannt && erkannt.art === "baum";
+  if(wahl && erkannt && !wahl.dataset.vonHand)
+    wahl.value = einzeln ? "kopieren" : "zeigen";
+  if(warnung){
+    const nachbarn = einzeln ? Math.max(0, (erkannt.baeume || []).length - 1) : 0;
+    warnung.hidden = !(einzeln && wahl && wahl.value === "zeigen");
+    warnung.innerHTML = nachbarn
+      ? `<b>Achtung:</b> Ein einzelner Stammbaum kann kein Datenordner sein. Bei
+         <b>Dorthin zeigen</b> wird der Ordner <b>darüber</b> genommen – ${
+           nachbarn === 1
+             ? "und der Stammbaum, der noch darin liegt, ist dann ebenfalls da"
+             : "und die " + nachbarn + " weiteren Stammbäume darin sind dann ebenfalls da"}.
+         Willst du wirklich nur diesen einen: <b>Hierher kopieren</b>.`
+      : `<b>Achtung:</b> Ein einzelner Stammbaum kann kein Datenordner sein. Bei
+         <b>Dorthin zeigen</b> wird der Ordner <b>darüber</b> genommen.`;
+  }
+}
+
+async function runImportOrdner(){
+  const feld = document.getElementById("importOrdner");
+  const pfad = feld ? feld.value.trim() : "";
+  if(!pfad) return say("Erst einen Ordner angeben.", true);
+  const mode = document.getElementById("ordnerMode").value;
+  const button = document.getElementById("doImport");
+  const info = document.getElementById("importInfo");
+
+  if(mode === "kopieren" && !confirm(
+      "Aus\n\n" + pfad + "\n\neine Kopie hierher holen?\n\n" +
+      "Der Ordner dort bleibt unangetastet. Was hier schon steht, bleibt stehen – " +
+      "es kommt dazu.")) return;
+
+  button.disabled = true;
+  button.textContent = mode === "zeigen" ? "Stellt um …" : "Kopiert …";
+  if(info) info.textContent = pfad;
+  try{
+    const out = await api("/api/import-folder?k=" + encodeURIComponent(EDIT.token),
+                          {pfad, modus: mode});
+    const body = document.querySelector(".sheet-body");
+    const foot = document.querySelector(".sheet-foot");
+    const genommen = out.uebernommen || [];
+    if(body) body.innerHTML = `<div class="sec"><h3>${
+      out.modus === "zeigen" ? "Umgestellt" : "Übernommen"}</h3>
+      ${out.modus === "zeigen"
+        ? `<p class="prose">Das Programm arbeitet ab jetzt in<br>
+             <b>${esc(out.ordner)}</b>.<br>Kopiert wurde nichts.
+             ${out.gefunden} ${out.gefunden === 1 ? "Stammbaum" : "Stammbäume"} liegen darin.</p>`
+        : `<p class="prose">${genommen.length} ${genommen.length === 1
+             ? "Stammbaum ist" : "Stammbäume sind"} dazugekommen – über den Namen oben
+             links erreichbar. Der Ordner, aus dem sie kommen, ist unverändert.</p>
+           <ul class="movelist" style="margin-top:10px">${genommen.map(t =>
+             `<li><b>${esc(t.titel)}</b><small>${t.personen} ${
+               t.personen === 1 ? "Person" : "Personen"}</small></li>`).join("")}</ul>`}
+    </div>`;
+    if(foot) foot.innerHTML = `<button class="btn primary" data-close="1"
+      id="afterImport">Ansehen</button><span class="grow"></span>`;
+    setTimeout(() => location.reload(), 1400);
+  }catch(err){
+    say("Nicht übernommen – " + err.message, true);
+    button.disabled = false;
+    button.textContent = "Übernehmen";
+  }
+}
+
 async function runImport(){
+  if(importQuelle === "ordner") return runImportOrdner();
   if(!importFile) return say("Erst eine Datei wählen.", true);
   const mode = document.getElementById("importMode").value;
   const button = document.getElementById("doImport");
@@ -4127,9 +4326,12 @@ function startHTML(){
         <p class="prose">Von einer früheren Fassung, von einem anderen Rechner oder
           von einer Festplatte. Den Ordner hier angeben – alle Stammbäume darin
           werden gefunden, und es wird nichts verschoben.</p>
-        <label class="field" style="margin-top:10px"><span>Ordner</span>
+        <div class="ordnerzeile" style="margin-top:10px">
           <input id="startOrdner" spellcheck="false"
-                 value="${esc((EDIT && EDIT.datenordner) || "")}"></label>
+                 value="${esc((EDIT && EDIT.datenordner) || "")}">
+          <button type="button" class="btn" data-pick="startOrdner"
+                  data-erkannt="startErkannt">Ordner wählen …</button>
+        </div>
         <p class="erkannt" id="startErkannt"></p>
         <button class="btn" id="startZeigen" style="margin-top:10px">Diesen nehmen</button>
         <p class="hintline" style="margin-top:8px">Das Programm sucht von sich aus
@@ -4281,6 +4483,7 @@ if(EDIT){
     closeSheetHard();
     document.body.insertAdjacentHTML("beforeend", importHTML());
     document.body.style.overflow = "hidden";
+    setImportQuelle("datei");
   });
 
   document.getElementById("exportBtn").addEventListener("click", () => {
@@ -4295,6 +4498,8 @@ if(EDIT){
     if(pick){ openMenu(pick.closest(".picker")); return; }
     if(e.target.id === "dataDir"){ pruefeOrdner("dataDir", "dataDirErkannt"); return; }
     if(e.target.id === "startOrdner"){ pruefeOrdner("startOrdner", "startErkannt"); return; }
+    if(e.target.id === "importOrdner"){
+      pruefeOrdner("importOrdner", "importErkannt", zeigeFunde); return; }
     const field = e.target.closest("[data-k]");
     if(!field || !draft || !field.closest("#editForm")) return;
     setPath(draft, field.dataset.k, readInput(field));
@@ -4308,6 +4513,17 @@ if(EDIT){
   document.addEventListener("focusin", e => {
     const pick = e.target.closest(".pickinput");
     if(pick) openMenu(pick.closest(".picker"));
+  });
+
+  // Once somebody has answered the question themselves, the recognition stops
+  // answering it for them - a suggestion that keeps overriding a choice is not
+  // a suggestion.
+  document.addEventListener("change", e => {
+    if(e.target.id !== "ordnerMode") return;
+    e.target.dataset.vonHand = "1";
+    const warnung = document.getElementById("importWarnung");
+    if(warnung && e.target.value !== "zeigen") warnung.hidden = true;
+    else pruefeOrdner("importOrdner", "importErkannt", zeigeFunde);
   });
 
   document.addEventListener("click", e => {
@@ -4335,6 +4551,10 @@ if(EDIT){
       });
       return;
     }
+    const quelle = e.target.closest("[data-quelle]");
+    if(quelle){ setImportQuelle(quelle.dataset.quelle); return; }
+    const waehler = e.target.closest("[data-pick]");
+    if(waehler){ ordnerWaehlen(waehler.dataset.pick, waehler.dataset.erkannt); return; }
     if(e.target.closest("#firstPerson")){ openEditor(null); return; }
     if(e.target.closest("#takeOver")){ takeOver(); return; }
     if(e.target.closest("#doUmzug")){ runUmzug(); return; }

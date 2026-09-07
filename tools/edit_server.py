@@ -107,6 +107,74 @@ def free_name(folder: str, name: str) -> str:
     return candidate
 
 
+def pick_folder(start: str = "") -> str:
+    """Ask Windows for a folder and hand back the path, or "" if cancelled.
+
+    Wanted because the page cannot ask: a file picker in a browser hands over
+    bytes and withholds the path, and a folder has no bytes to hand over at
+    all.  This process is on the machine the folder is on, so it can ask.
+
+    Through the shell's own dialog rather than tkinter: tkinter would work in
+    four lines and put roughly ten megabytes of GUI toolkit into a program
+    whose whole point is that it is one file somebody double clicks.  The
+    dependency rule in CLAUDE.md is what decided it.
+
+    Returns "" wherever the answer is "no folder", including on a system with
+    no shell to ask - the typed field beside the button covers that case, and
+    an import dialog is not the place to explain an operating system.
+    """
+    if sys.platform != "win32":
+        return ""
+    import ctypes
+    from ctypes import wintypes
+
+    class BROWSEINFOW(ctypes.Structure):
+        _fields_ = [("hwndOwner", wintypes.HWND),
+                    ("pidlRoot", ctypes.c_void_p),
+                    ("pszDisplayName", wintypes.LPWSTR),
+                    ("lpszTitle", wintypes.LPCWSTR),
+                    ("ulFlags", wintypes.UINT),
+                    ("lpfn", ctypes.c_void_p),
+                    ("lParam", wintypes.LPARAM),
+                    ("iImage", ctypes.c_int)]
+
+    shell32 = ctypes.windll.shell32
+    ole32 = ctypes.windll.ole32
+    user32 = ctypes.windll.user32
+    # ctypes returns a C int unless told otherwise, and a window handle is a
+    # pointer: on 64 bit the top half is cut off and what is left is not a
+    # window.  The dialog then refuses to open and says nothing about why.
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    # The new-style dialog is a COM control and refuses to appear without an
+    # apartment; the older one would come up regardless and look it.
+    ole32.CoInitialize(None)
+    try:
+        name = ctypes.create_unicode_buffer(260)
+        info = BROWSEINFOW()
+        # The window in front belongs to the browser showing the editor, which
+        # is a different process - owning the dialog to it is what keeps it
+        # from opening behind the page somebody just clicked in.
+        info.hwndOwner = user32.GetForegroundWindow()
+        info.pszDisplayName = ctypes.cast(name, wintypes.LPWSTR)
+        info.lpszTitle = "Ordner mit dem Stammbaum wählen"
+        # NEWDIALOGSTYLE: resizable, with a "new folder" button.
+        # EDITBOX: a line to paste a path into, which is how a path arrives
+        # from an Explorer address bar.
+        # RETURNONLYFSDIRS: no printers and no control panel.
+        info.ulFlags = 0x00000040 | 0x00000010 | 0x00000001
+        shell32.SHBrowseForFolderW.restype = ctypes.c_void_p
+        pidl = shell32.SHBrowseForFolderW(ctypes.byref(info))
+        if not pidl:
+            return ""
+        path = ctypes.create_unicode_buffer(1024)
+        shell32.SHGetPathFromIDListW.argtypes = [ctypes.c_void_p, wintypes.LPWSTR]
+        got = shell32.SHGetPathFromIDListW(pidl, path)
+        ole32.CoTaskMemFree(ctypes.c_void_p(pidl))
+        return path.value if got else ""
+    finally:
+        ole32.CoUninitialize()
+
+
 # The rendered page, kept until the tree changes.  Building it means base64
 # encoding every portrait, which is a second or so - fine once, silly on every
 # reload while somebody is working.
@@ -319,6 +387,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.api_take_over()
             if route == "/api/import":
                 return self.api_import()
+            if route == "/api/import-folder":
+                return self.api_import_folder()
+            if route == "/api/waehle-ordner":
+                return self.api_pick_folder()
             if route == "/api/open-tree":
                 return self.api_open_tree()
             if route == "/api/rename-tree":
@@ -585,6 +657,87 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "gesamt": len(merged["people"]),
                         "doppelverdaechtig": twins[:40],
                         "doppelt": len(twins)})
+
+    def api_import_folder(self) -> None:
+        """Read a folder rather than a file - the other half of importing.
+
+        Three things somebody can be holding, and the difference matters
+        enough that it is asked rather than guessed:
+
+        *zeigen* is putting an installation back.  The trees are already in a
+        folder somewhere and nothing should be copied anywhere - the program
+        is simply told to work there from now on.  Nothing is written except
+        the note saying where to look.
+
+        *kopieren* is somebody handing over their family.  The folder stays
+        theirs and untouched; what arrives here is a copy, beside the trees
+        that are already here rather than instead of them.
+
+        Which trees, finally, is `nur`: pointing at one tree folder takes that
+        one and does not go looking at its neighbours, which is the whole
+        difference between "here is my family" and "here is my data folder".
+        """
+        payload = self.body()
+        wanted = (payload.get("pfad") or "").strip()
+        mode = (payload.get("modus") or "kopieren").strip()
+        if not wanted:
+            return self.fail(400, "Ohne Ordner geht es nicht.")
+
+        was = store.identify(wanted)
+        if was["art"] == "fehlt":
+            return self.fail(400, "Diesen Ordner gibt es nicht: " + was["gefragt"])
+        if was["art"] == "leer":
+            return self.fail(400, "In diesem Ordner liegt kein Stammbaum.")
+
+        if mode == "zeigen":
+            # The folder to point at is the one holding the trees, not the tree
+            # itself - that distinction is `identify`'s whole job.
+            target = was["ordner"]
+            if not store.writable(target):
+                return self.fail(400, "Dorthin kann nicht geschrieben werden: " + target)
+            store.write_pointer(target)
+            return self.send_json({"ok": True, "modus": mode, "ordner": target,
+                                   "erkannt": was, "gefunden": len(was["baeume"])})
+
+        only = payload.get("nur") or None
+        try:
+            if was["art"] == "baum":
+                slugs = [store.adopt_folder(was["gefragt"])]
+            else:
+                where = was["gefragt"]
+                if not store.holds_trees(where):
+                    where = os.path.join(where, store.TREES_DIRNAME)
+                slugs = store.adopt_all(where, only)
+        except (ValueError, OSError) as err:
+            return self.fail(400, "Nicht übernommen: %s" % err)
+
+        if slugs:
+            store.set_open(slugs[0])
+        self.send_json({"ok": True, "modus": mode, "erkannt": was,
+                        "offen": store.open_slug(),
+                        "uebernommen": [{"slug": s, "titel": store.heading_title(s),
+                                         "personen": store.heading(s)["personen"]}
+                                        for s in slugs]})
+
+    def api_pick_folder(self) -> None:
+        """Let Windows ask the question, so nobody has to copy a path by hand.
+
+        The page cannot do this: a browser hands over a file's bytes and never
+        its path, and a folder has no bytes at all.  The server can, because it
+        is running on the machine the folder is on.
+
+        Done with the shell's own dialog through ctypes rather than tkinter,
+        which would put ten megabytes of GUI toolkit into the exe for one
+        question.  The typed field stays either way - this only saves the trip
+        through the address bar.
+        """
+        start = (self.body().get("start") or "").strip()
+        try:
+            picked = pick_folder(start)
+        except Exception as err:                       # noqa: BLE001
+            return self.fail(500, "Der Ordner-Dialog liess sich nicht öffnen: %s" % err)
+        self.send_json({"ok": True, "pfad": picked,
+                        "erkannt": store.identify(picked) if picked else None})
 
     def api_umziehen(self) -> None:
         """Give every tree a folder of its own, on a click and not before.
