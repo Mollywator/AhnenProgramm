@@ -628,7 +628,6 @@ machine it is on.
 │  ├─ export.py             the exporter: person and field filter, book, PDF
 │  ├─ edit_server.py         the editing program - window plus local back end
 │  ├─ build_exe.py           freezes that into Stammbaum.exe
-│  ├─ git-hooks/             the guard that keeps the second folder out of here
 │  └─ Editor ohne exe starten.cmd   the same thing where Python is installed
 └─ (no data of any kind)
 
@@ -666,8 +665,18 @@ while working on the code, with the data sitting in the same folder and the
 ignore list looking fine.
 
 Data that is not in the folder cannot be committed from it, whatever else goes
-wrong. The ignore list and the pre-commit hook are still there, but they are now
-the second and third line rather than the only one.
+wrong. The ignore list is the second line, and it names what data *is* rather
+than only where it sits: a portrait dropped in here to try something is caught
+by `*.jpg`, not by a folder rule.
+
+There was a pre-commit hook doing the same job for a while. It went, because a
+hook lives in `.git/hooks`, which is not part of a repository - every fresh
+clone starts without it, and it is missing precisely when somebody unfamiliar
+is looking around. The ignore list arrives with the clone.
+
+Neither reads the code for names, and that is worth saying plainly: both of the
+leaks that actually happened came through comments, and no rule about where
+files live would have caught either.
 
 Plus `Export/`, which the exporter writes into.  Neither that nor
 `Stammbaum.exe` is committed - the exe is 7.6 MB of frozen Python and rebuilds

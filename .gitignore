@@ -43,3 +43,32 @@ WO DIE DATEN LIEGEN.txt
 # Programm sein - wer es klont, bekommt Quelltext, keine Arbeitsanweisungen.
 CLAUDE.md
 CLAUDE.local.md
+
+# ---------------------------------------------------------------------------
+#  Was Familiendaten sind, egal wie die Datei heisst
+#
+#  Der frühere pre-commit-Hook hat genau das geprueft. Er ist weg, weil ein
+#  Hook nach jedem Klon erst installiert werden muss und deshalb genau dann
+#  fehlt, wenn ihn jemand braucht. Diese Datei kommt mit dem Repo mit.
+#
+#  Ohne diese Zeilen rutscht ein einzelnes Portrait, das jemand zum Auspro-
+#  bieren danebengelegt hat, bei "git add -A" mit durch - die Ordnerregeln
+#  weiter oben greifen nur bei ganzen Ordnern.
+# ---------------------------------------------------------------------------
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+*.tif
+*.tiff
+*.bmp
+*.pdf
+*.ged
+*.baum
+*.exe
+
+# Ausnahme: Bildschirmfotos fuer die Anleitung. Ein bewusst angelegter Ordner,
+# in den niemand versehentlich ein Familienfoto legt.
+!docs/bilder/
+!docs/bilder/*.png

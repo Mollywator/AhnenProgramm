@@ -156,11 +156,19 @@ def read_pointer() -> str | None:
 
 
 def write_pointer(path: str | None) -> str:
-    """Remember the chosen folder, or forget it when handed None.
+    """Remember the chosen folder in **both** places, or forget it everywhere.
 
-    Written beside the program when that can be written to - then the setting
-    travels with the program - and otherwise into the user's application data.
+    Beside the program, so that the setting travels with it on a stick.  And in
+    the user's application data, because the copy beside the program disappears
+    with the program folder - somebody unpacking a new version over the old one,
+    or deleting the folder and putting the program back.
+
+    Writing only the first one, which is what this did, meant exactly that case
+    ended with the program looking at an empty folder beside itself while the
+    trees sat untouched where they had always been.  Nothing was lost, but
+    nothing was found either, and the person is left thinking it was.
     """
+    written = []
     for target in pointer_files():
         try:
             os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -170,10 +178,35 @@ def write_pointer(path: str | None) -> str:
                 continue
             with open(target, "w", encoding="utf-8") as fh:
                 fh.write(os.path.abspath(path) + "\n")
-            return target
+            written.append(target)
         except OSError:
             continue
-    return ""
+    return written[0] if written else ""
+
+
+def anchor_pointer() -> None:
+    """Write the folder in use down where losing the program cannot lose it.
+
+    Called on start.  A folder that is not simply the default beside the
+    program is a decision somebody made, and it should not have to be made
+    twice because a folder was replaced.  The default itself is left alone -
+    freezing that would tie the program to the disk it first ran from.
+    """
+    here = data_dir()
+    if os.path.abspath(here) == os.path.abspath(
+            os.path.join(program_dir(), FOLDER_NAME)):
+        return
+    if not os.path.isdir(here):
+        return
+    spare = os.path.join(app_dir(), POINTER_FILE)
+    if os.path.isfile(spare):
+        return
+    try:
+        os.makedirs(os.path.dirname(spare), exist_ok=True)
+        with open(spare, "w", encoding="utf-8") as fh:
+            fh.write(os.path.abspath(here) + "\n")
+    except OSError:
+        pass
 
 
 def data_dir() -> str:

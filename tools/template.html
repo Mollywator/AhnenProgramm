@@ -3866,8 +3866,13 @@ async function renameTree(){
   }catch(err){ say("Nicht geändert – " + err.message, true); }
 }
 
-async function setDataDir(move){
-  const field = document.getElementById("dataDir");
+/* `feld` is a parameter because the same question is asked in two places: in
+   the settings, where somebody is tidying up, and in the start dialog, where
+   somebody has just installed the program and their trees are already
+   somewhere.  The second one only ever points - moving on a first start would
+   move a folder the person has not even seen yet. */
+async function setDataDir(move, feld){
+  const field = document.getElementById(feld || "dataDir");
   const wanted = field ? field.value.trim() : "";
   if(!wanted) return say("Ohne Pfad geht es nicht.", true);
   if(move && !confirm("Alle Daten nach\n\n" + wanted + "\n\numziehen?\n\n" +
@@ -4079,8 +4084,17 @@ function startHTML(){
           Baum da.</p>
         <button class="btn" id="fromFile" style="margin-top:12px">Datei einlesen</button></div>
 
-      <div class="sec"><h3>Wo die Daten liegen</h3>
-        <p class="hintline" style="margin:0">${esc((EDIT && EDIT.datenordner) || "")}</p></div>
+      <div class="sec"><h3>Es gibt schon einen Datenordner</h3>
+        <p class="prose">Von einer früheren Fassung, von einem anderen Rechner oder
+          von einer Festplatte. Den Ordner hier angeben – alle Stammbäume darin
+          werden gefunden, und es wird nichts verschoben.</p>
+        <label class="field" style="margin-top:10px"><span>Ordner</span>
+          <input id="startOrdner" spellcheck="false"
+                 value="${esc((EDIT && EDIT.datenordner) || "")}"></label>
+        <button class="btn" id="startZeigen" style="margin-top:10px">Diesen nehmen</button>
+        <p class="hintline" style="margin-top:8px">Das Programm sucht von sich aus
+          nirgendwo sonst. Im Moment schaut es hier:<br>${esc((EDIT && EDIT.datenordner) || "")}</p>
+      </div>
     </div>
   </div></div>`;
 }
@@ -4282,6 +4296,7 @@ if(EDIT){
     if(e.target.closest("#firstPerson")){ openEditor(null); return; }
     if(e.target.closest("#takeOver")){ takeOver(); return; }
     if(e.target.closest("#doUmzug")){ runUmzug(); return; }
+    if(e.target.closest("#startZeigen")){ setDataDir(false, "startOrdner"); return; }
     if(e.target.closest("#openFolder")){
       api("/api/open-folder?k=" + encodeURIComponent(EDIT.token))
         .catch(err => say(err.message, true));

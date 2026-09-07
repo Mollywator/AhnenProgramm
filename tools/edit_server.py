@@ -714,6 +714,10 @@ def main() -> None:
     # to used to surface as a PyInstaller stack trace in a message box, which
     # tells the person holding the mouse exactly nothing.
     ordner = store.data_dir()
+    # A chosen folder is written down a second time, outside the program folder,
+    # so that replacing or deleting that folder does not lose the way back to
+    # the trees.
+    store.anchor_pointer()
     if not store.writable(ordner):
         complain(
             "Der Datenordner laesst sich nicht beschreiben:\n\n"
