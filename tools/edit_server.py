@@ -163,6 +163,13 @@ def pick_folder(start: str = "") -> str:
         # The window in front belongs to the browser showing the editor, which
         # is a different process - owning the dialog to it is what keeps it
         # from opening behind the page somebody just clicked in.
+        #
+        # The price is worth knowing: an owned dialog is modal to its owner, so
+        # whatever is in front when this runs cannot be typed in until the
+        # dialog is answered. Through the editor that window is always the page
+        # the button was clicked on, which is what should be blocked. Called any
+        # other way it will lock whatever happens to be in front - found out by
+        # calling this from a script while something else had focus.
         info.hwndOwner = user32.GetForegroundWindow()
         info.pszDisplayName = ctypes.cast(name, wintypes.LPWSTR)
         info.lpszTitle = "Ordner mit dem Stammbaum wählen"
