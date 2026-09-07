@@ -1,0 +1,16 @@
+# Line endings, decided here rather than left to each machine's settings.
+* text=auto eol=lf
+
+# Windows starters are double clicked from the Explorer and want CRLF.
+*.cmd text eol=crlf
+
+# The hooks are run by sh. A CRLF in the shebang line makes them fail with a
+# message that says nothing about line endings, so they are pinned to LF.
+tools/git-hooks/* text eol=lf
+
+# Nothing to diff or convert in these.
+*.exe   binary
+*.jpg   binary
+*.jpeg  binary
+*.png   binary
+*.pdf   binary

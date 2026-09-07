@@ -1,0 +1,45 @@
+# ---------------------------------------------------------------------------
+#  Alles, was eine Familie betrifft, bleibt auf diesem Rechner.
+#
+#  Diese Datei ist die erste von zwei Sperren.  Die zweite ist der Hook unter
+#  tools/git-hooks/pre-commit, der den Commit abbricht, falls hier doch einmal
+#  eine Luecke entsteht.  Wer eine Zeile von hier entfernt, hebelt eine bewusste
+#  Entscheidung aus - dann bitte auch den Hook anpassen und wissen, warum.
+# ---------------------------------------------------------------------------
+
+# Der Genealogiebericht und alles, was daraus gerechnet wurde
+data/
+source/
+
+# Die Baeume, die das Programm pflegt - Personen, Portraits, Unterlagen
+Stammbaum-Daten/
+
+# Fertige Seiten, Diagramme und Buecher: enthalten den ganzen Baum
+Export/
+Stammbaum.html
+
+# Die einzige Datei im Programm, die Namen kennt
+tools/report.json
+
+# Gebaute Fassungen: ein Binaerpaket gehoert nicht in die Historie, und der
+# Release-Ordner ist ein Abzug, kein Quelltext
+Stammbaum.exe
+Release/
+
+# Werkzeugkram
+.work/
+tools/__pycache__/
+*.pyc
+
+# Claude-Konfiguration: token-config.json fuehrt Dateipfade mit Namen darin
+.claude/
+
+# Der Zeiger auf den Datenordner ist eine Einstellung dieses Rechners, und der
+# Zettel daneben erklaert nur, wohin die Daten gezogen sind.
+datenordner.txt
+WO DIE DATEN LIEGEN.txt
+
+# Notizen zur Arbeitsweise bleiben auf diesem Rechner. Das Repo soll das reine
+# Programm sein - wer es klont, bekommt Quelltext, keine Arbeitsanweisungen.
+CLAUDE.md
+CLAUDE.local.md
