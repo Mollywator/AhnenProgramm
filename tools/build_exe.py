@@ -27,11 +27,17 @@ WORK = os.path.join(ROOT, ".work", "pyinstaller")
 ENTRY = os.path.join(HERE, "edit_server.py")
 RESULT = os.path.join(ROOT, "Stammbaum.exe")
 
-# Keep in step with VERSION in tools/template.html.  Windows shows this in the
-# file properties, which is the only place an exe found again in five years can
-# be asked what it is.
-VERSION = "1.0"
-VERSION_TUPLE = tuple(int(part) for part in (VERSION.split(".") + ["0", "0", "0", "0"])[:4])
+# Out of the page template, the one place the number is written down.  Windows
+# shows it in the file properties, which is the only place an exe found again in
+# five years can be asked what it is - and it has to agree with what the program
+# says about itself when it runs.
+sys.path.insert(0, HERE)
+import build_site  # noqa: E402
+
+VERSION = build_site.version()
+VERSION_TUPLE = tuple(int(part) for part in
+                      ([p for p in VERSION.split(".") if p.isdigit()] +
+                       ["0", "0", "0", "0"])[:4])
 
 
 def version_resource() -> str:

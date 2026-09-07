@@ -16,6 +16,7 @@ import tempfile
 import io
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -48,6 +49,27 @@ def template_path() -> str:
     if FROZEN:
         return os.path.join(getattr(sys, "_MEIPASS", HERE), "template.html")
     return os.path.join(HERE, "template.html")
+
+
+def version() -> str:
+    """The program's version number, from the one place it is written down.
+
+    It has to be in the template regardless: the page handed to the family
+    carries it in its footer and its manual, and that page is one file with no
+    program behind it.  So the template is the source, and everything else asks
+    here rather than keeping a copy.
+
+    It was kept in three places for one afternoon - the template, the editor,
+    the exe builder - which is exactly long enough for them to be able to
+    disagree.  A window saying 1.1 while its own file properties say 1.0 is the
+    kind of fault that costs an hour to believe.
+    """
+    try:
+        with open(template_path(), encoding="utf-8") as fh:
+            found = re.search(r'const\s+VERSION\s*=\s*"([^"]+)"', fh.read(200_000))
+    except OSError:
+        return "?"
+    return found.group(1) if found else "?"
 
 # Portraits are printed at roughly 50x66pt in the report; 300x400px is plenty
 # for a screen and keeps the finished file in the low single digit megabytes.

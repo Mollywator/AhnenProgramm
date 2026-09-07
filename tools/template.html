@@ -779,8 +779,14 @@ const DATA = __DATA__;
 const PHOTOS = __PHOTOS__;
 
 /* The program's own version, not the tree's.  It travels into every exported
-   page, so a file found again in five years still says what made it. */
-const VERSION = "1.0";
+   page, so a file found again in five years still says what made it.
+
+   This line is the **only** place the number is written down. The editor reads
+   it from here and so does the exe builder, which stamps it into the file
+   properties. It lives in the template rather than in a Python file because
+   this page has to carry it with no program behind it - and a number kept in
+   two places is a number that will eventually disagree with itself. */
+const VERSION = "1.1";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));

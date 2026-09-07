@@ -50,9 +50,10 @@ import store  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# Kept in step with VERSION in tools/template.html and build_exe.py.  Shown in
-# the options, and named in the message a tree from a newer program produces.
-VERSION = "1.0"
+# Read out of the page template, which is where it has to live anyway - the
+# page handed to the family carries it with no program behind it.  Asked once
+# at start rather than kept as a second copy that can disagree.
+VERSION = build_site.version()
 # Where a newer version would come from.  The program itself never asks it
 # anything - it hands the address to the browser and stops there.  See the
 # options dialog for why that line is where it is.
