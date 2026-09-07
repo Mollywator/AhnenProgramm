@@ -2,10 +2,9 @@
 #  Alles, was eine Familie betrifft, bleibt auf diesem Rechner.
 #
 #  Diese Datei ist die erste von zwei Sperren.  Die zweite ist die Namens-
-#  pruefung.  Sie liegt bewusst neben den Daten und nicht hier - sie muss die
-#  Baeume lesen, um ihre Arbeit zu tun, und darf deshalb selbst nie mitgehen:
-#
-#      Das Gehirn\8. Stammbaum Programm\Namen pruefen.bat
+#  pruefung "Namen pruefen.bat".  Sie liegt bewusst neben den Daten und nicht
+#  hier - sie muss die Baeume lesen, um ihre Arbeit zu tun, und darf deshalb
+#  selbst nie mitgehen.
 #
 #  Sie faengt, was eine Ignore-Liste nicht fangen kann: einen Namen, den jemand
 #  beim Programmieren in einen Kommentar tippt.  Wer eine Zeile von hier
