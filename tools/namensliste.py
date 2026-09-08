@@ -4,8 +4,8 @@
 Two jobs, and the second is the reason it exists at all.
 
 The first is for people: everybody in a family tree has a number, and it is the
-only thing that tells two people with the same name apart.  "In the Löschen
-tree I am number 13" is a sentence somebody should be able to say, so the
+only thing that tells two people with the same name apart.  "In the family tree
+I am number 13" is a sentence somebody should be able to say, so the
 numbers are printed first and the list is ordered by them.
 
 The second is for the backup.  The trees themselves are megabytes of JSON;

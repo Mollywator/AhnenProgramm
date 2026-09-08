@@ -15,8 +15,8 @@ in every tree that carries her, and the rest is local:
       "uid":    "p-3f8a1c204e7b",   the shared identity. Never reused, never
                                     changed. Two records with the same uid are
                                     the same human being.
-      "trees":  [{"slug": "rodenberg", "id": 42},
-                 {"slug": "loeschen",  "id": 7}],
+      "trees":  [{"slug": "baum-a", "id": 42},
+                 {"slug": "baum-b", "id": 7}],
                                     every tree carrying her, and her number in
                                     it. Kept in step on every save.
       "via":    "p-91be04c7d2f1" | null,

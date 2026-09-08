@@ -3293,7 +3293,7 @@ async function takeOver(){
 
 async function saveDraft(){
   /* The surname a "＋" wrote into the field would otherwise satisfy the check
-     below all by itself, and a person called nothing but "Löschen" would go
+     below all by itself, and a person called nothing but their surname would go
      into the tree unremarked. */
   if(draft._surnameSeeded && !draft.given && !(draft.name || "").trim()){
     say("Da steht bisher nur der Nachname – der Vorname fehlt noch.", true);

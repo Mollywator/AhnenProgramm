@@ -738,6 +738,35 @@ Neither reads the code for names, and that is worth saying plainly: both of the
 leaks that actually happened came through comments, and no rule about where
 files live would have caught either.
 
+A third one happened in September 2026, and it came in a way neither line
+covers: through a *conversation*.  Names spoken while describing the problem -
+whose family, which wife, which two trees - were carried straight into the
+examples of a new test file and into a pull request, where they were public.
+Nothing on this list was ever going to see that.
+
+So there is now a check that reads the code: `tools/test_keine_namen.py`.  It
+takes the names out of the data folder - the one place they legitimately live -
+and fails if any of them appears anywhere in this repository.  Three things
+about it are deliberate:
+
+* **It gets the names from outside.** A list of forbidden names inside the
+  repository would itself be the leak.  It reads `baum.json`, and only the
+  fields that really are a name.  The readable `Namensliste.txt` was the
+  obvious second source and is the wrong one: it has a heading and prose, and
+  taking every word from it flagged 1502 lines including `.gitignore` - a check
+  that cries wolf is worse than none.
+* **It never prints what it found.** A failure names the file and the line.
+  Saying which name matched would put it in a build log, which is the thing
+  being prevented.
+* **It is a test, not a hook.** That is the whole point - a hook lives in
+  `.git/hooks` and no clone brings it along, which is why the last one went.
+  A test arrives with the clone and runs with `python -m unittest discover -s tools`.
+
+On any machine without a data folder it skips and says so, rather than passing
+quietly: it cannot check what it cannot see. Which also means it only protects
+the machine the family is actually on - so it belongs in the run before a push,
+not in a build server that has nothing to compare against.
+
 Plus `Export/`, which the exporter writes into.  Neither that nor
 `Stammbaum.exe` is committed - the exe is 7.6 MB of frozen Python and rebuilds
 in a minute, and everything in `Export/` is derived from the two files that
