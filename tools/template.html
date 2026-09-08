@@ -1855,7 +1855,7 @@ function renderTree(){
     people.size + " von " + DATA.meta.count + " Personen im Bild";
 
   applyScale();
-  requestAnimationFrame(centreView);
+  requestAnimationFrame(settleView);
 }
 
 const round1 = n => Math.round(n * 10) / 10;
@@ -1938,6 +1938,51 @@ function fitToCentre(){
   view.x = RAIL_W + (room - w * view.scale) / 2;
   view.y = (stage.clientHeight - h * view.scale) / 2;
   applyScale();
+}
+
+/* Where the view is to stand once the tree has been drawn again.  Choosing a
+   new middle lays every box out afresh, so leaving the camera alone would not
+   hold anything still - the person under the pointer would slide away beneath
+   it.  The box that was clicked is pinned to the screen spot it already
+   occupied instead: the diagram rearranges itself around a fixed point, the
+   reader keeps their bearings, and a relative added with "+" turns up next to
+   the box it was added from rather than somewhere that has to be looked for. */
+let anchor = null;
+
+/* Notes where a box sits on screen, but only while it really is on screen:
+   pinning a box outside the window would hold the view on empty paper. */
+function holdInPlace(id){
+  anchor = null;
+  if(id === null || id === undefined) return;
+  const box = document.querySelector('.box[data-person="' + id + '"]');
+  if(!box) return;
+  const stage = document.getElementById("stage");
+  const sx = (parseFloat(box.style.left) + NW / 2) * view.scale + view.x;
+  const sy = (parseFloat(box.style.top) + NH / 2) * view.scale + view.y;
+  if(sx < RAIL_W || sx > stage.clientWidth || sy < 0 || sy > stage.clientHeight) return;
+  anchor = {id, sx, sy};
+}
+
+/* Puts the held box back under the same screen point.  The scale may have
+   changed in between - the first pick switches to the near view - so the box
+   centre is measured, not its corner, and the person grows in place. */
+function restoreAnchor(){
+  const held = anchor;
+  anchor = null;
+  const box = held && document.querySelector('.box[data-person="' + held.id + '"]');
+  // Gone from the drawing altogether: centring is then the only way to leave
+  // the reader looking at something.
+  if(!box) return centreView();
+  view.x = held.sx - (parseFloat(box.style.left) + NW / 2) * view.scale;
+  view.y = held.sy - (parseFloat(box.style.top) + NH / 2) * view.scale;
+  applyScale();
+}
+
+/* One place decides where a fresh drawing leaves the view: on the held box if
+   there is one, on the middle otherwise. */
+function settleView(){
+  if(anchor) restoreAnchor();
+  else centreView();
 }
 /* Switching views happens in two places - the buttons, and the moment the
    first centre is picked - so the whole switch lives in one function. */
@@ -2442,9 +2487,13 @@ function pickerHTML(role, label){
 function offerHTML(role){
   const offers = spouseSuggestions(role, new Set([draft.id, ...currentIds(role)]));
   if(!offers.length) return "";
+  const why = s => role === "parents"
+    ? esc(personLabel(s.person.id)) + " als Elternteil eintragen – Ehepartner von " + esc(personLabel(s.through))
+    : esc(personLabel(s.person.id)) + " gehört mit dazu? – steht schon als Elternteil von "
+      + esc(personLabel(s.through)) + " drin";
   return `<div class="offers">${offers.map(s =>
     `<button type="button" class="offer" data-link="${role}:${s.person.id}"
-       title="${esc(personLabel(s.person.id))} als Elternteil eintragen – Ehepartner von ${esc(personLabel(s.through))}">
+       title="${why(s)}">
        ＋ ${esc(personLabel(s.person.id))}</button>`).join("")}</div>`;
 }
 
@@ -2587,7 +2636,9 @@ function formHTML(){
         "Vater und Mutter. Alles Weitere – Großeltern, Cousins, Urgroßonkel – rechnet das Programm daraus selbst aus. "
         + "Steht einer schon da, wird sein Ehepartner darunter mit Namen angeboten – eingetragen wird er erst mit einem Klick.")}
       ${linkSection("spouses", "Ehe und Partnerschaft", spouses,
-        "Wird bei beiden eingetragen, sobald gespeichert wird.")}
+        "Wird bei beiden eingetragen, sobald gespeichert wird. Hat das Kind, von dem aus diese "
+        + "Person angelegt wurde, schon einen Elternteil, wird der hier mit Namen angeboten – "
+        + "verbunden wird er erst mit einem Klick.")}
       ${linkSection("children", "Kinder", kids,
         "Ein Kind wird über seine Eltern verbunden – hier eingetragen, steht es dort automatisch mit drin.")}
 
@@ -2748,7 +2799,15 @@ function newRelative(role, other){
   if(!EDIT) return;
   if(!openEditor(null, {role, other})) return;   // unsaved work kept the form
   const who = personLabel(other);
-  say(role === "parent" ? "Neuer Elternteil von " + who + " – Name eintragen und speichern."
+  // The child already has one parent: say so straight away, because the offer
+  // to put the two together is sitting in the form and is easy to walk past.
+  const schon = role === "parent"
+    ? ((BY_ID.get(other) || {}).parents || []).filter(id => id !== draft.id)
+    : [];
+  say(schon.length
+    ? "Neuer Elternteil von " + who + ". " + personLabel(schon[0])
+      + " steht dort schon – unter „Ehe und Partnerschaft“ wird angeboten, die beiden zu verbinden."
+    : role === "parent" ? "Neuer Elternteil von " + who + " – Name eintragen und speichern."
     : role === "child" ? "Neues Kind von " + who + " – Name eintragen und speichern."
     : (draft.parents || []).some(p => sidecar.has(p))
       ? "Neues Geschwister von " + who + ". Die Eltern sind unbekannt – beide bekommen "
@@ -2846,6 +2905,9 @@ async function saveDraft(){
     draft = null;
     sidecar.clear();
     closeSheetHard();
+    // A saved relative should appear beside the box it was added from, not
+    // send the reader hunting: the armed box holds the view in place.
+    holdInPlace(armed !== null ? armed : centre);
     draw();
     say("Gespeichert. " + out.count + (out.count === 1 ? " Person" : " Personen") + " im Baum.");
   }catch(err){
@@ -3045,19 +3107,33 @@ function openMenu(picker){
    program may decide from a wedding date, and a wrong guess written into a
    family tree is an accusation. */
 function spouseSuggestions(role, taken){
-  if(role !== "parents") return [];
   const out = [];
   const seen = new Set();
-  for(const parent of draft.parents || []){
-    const p = lookup(parent);
-    if(!p) continue;
-    for(const mate of p.spouses || []){
-      if(taken.has(mate) || seen.has(mate)) continue;
-      const person = lookup(mate);
-      if(!person) continue;
-      seen.add(mate);
-      out.push({person, through: parent});
+  const add = (id, through) => {
+    if(id === draft.id || taken.has(id) || seen.has(id)) return;
+    const person = lookup(id);
+    if(!person) return;
+    seen.add(id);
+    out.push({person, through});
+  };
+  if(role === "parents"){
+    for(const parent of draft.parents || []){
+      const p = lookup(parent);
+      if(!p) continue;
+      for(const mate of p.spouses || []) add(mate, parent);
     }
+    return out;
+  }
+  // The other way round: this person is being entered as a parent of a child
+  // who already has one.  That other parent is the obvious partner, and asking
+  // is cheaper than making the reader search for a name they just came from.
+  if(role === "spouses"){
+    for(const kid of draft._children || []){
+      const k = lookup(kid);
+      if(!k) continue;
+      for(const other of k.parents || []) add(other, kid);
+    }
+    return out;
   }
   return out;
 }
@@ -3106,7 +3182,7 @@ document.addEventListener("click", e => {
   const closer = e.target.closest("[data-close]");
   if(closer){
     const c = closer.closest("[data-centre]") || closer;
-    if(c.dataset.centre) setCentre(+c.dataset.centre);
+    if(c.dataset.centre){ holdInPlace(+c.dataset.centre); setCentre(+c.dataset.centre); }
     closeSheet();
     return;
   }
@@ -3119,7 +3195,10 @@ document.addEventListener("click", e => {
     return;
   }
   const node = e.target.closest("[data-centre]");
-  if(node){ setCentre(+node.dataset.centre); closeSheet(); return; }
+  // Clicking a box makes that person the middle without moving the picture:
+  // the box stays under the pointer, so its "+" buttons are where the hand
+  // already is and the rest of the family regroups around it.
+  if(node){ holdInPlace(+node.dataset.centre); setCentre(+node.dataset.centre); closeSheet(); return; }
   if(e.target.id === "scrim") closeSheet();
   // A click past the boxes puts the add buttons away - but working inside a
   // sheet is not "past the boxes", or they would be gone on coming back out.
@@ -3834,6 +3913,9 @@ function treesHTML(){
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn primary" id="newTree">Neuen Stammbaum anlegen</button>
           <button class="btn" id="fromFile">Aus einer Datei einlesen</button>
+          ${EDIT && EDIT.zweig ? `<button class="btn" id="uebungsbaum"
+            title="Zwölf erfundene Personen zum Ausprobieren – gibt es nur in einem Zweig"
+            >Übungsbaum anlegen</button>` : ""}
         </div>
       </div>
 
@@ -3875,6 +3957,20 @@ async function switchTree(slug){
     await api("/api/open-tree?k=" + encodeURIComponent(EDIT.token), {slug});
     location.reload();
   }catch(err){ say("Nicht gewechselt – " + err.message, true); }
+}
+
+/* Die zwölf Übungspersonen holen.  Angelegt wird im Programm, nicht hier: der
+   Zweig-Riegel gehört auf die Seite, die die Daten schreibt. */
+async function makeUebungsbaum(){
+  const button = document.getElementById("uebungsbaum");
+  if(button){ button.disabled = true; button.textContent = "Legt an …"; }
+  try{
+    await api("/api/uebungsbaum?k=" + encodeURIComponent(EDIT.token));
+    location.reload();
+  }catch(err){
+    say("Nicht angelegt – " + err.message, true);
+    if(button){ button.disabled = false; button.textContent = "Übungsbaum anlegen"; }
+  }
 }
 
 async function newTree(){
@@ -4361,6 +4457,7 @@ async function runExport(){
    diagram drawn around nobody. */
 function startHTML(){
   const old = EDIT && EDIT.uebernehmbar;
+  const zw = EDIT && EDIT.zweig;
   return `<div class="scrim" id="scrim">
   <div class="sheet" role="dialog" aria-modal="true" aria-label="Anfangen">
     <div class="sheet-head" style="grid-template-columns:minmax(0,1fr)">
@@ -4379,10 +4476,19 @@ function startHTML(){
         <p class="hintline">${esc(old)}</p>
         <button class="btn primary" id="takeOver" style="margin-top:12px">Übernehmen</button></div>` : ""}
 
+      ${zw ? `<div class="sec"><h3>Übungsbaum</h3>
+        <p class="prose">Zwölf erfundene Personen über vier Generationen, die
+          <b>Person 1</b> bis <b>Person 12</b> heißen. Zum Ausprobieren, ohne dass
+          eine echte Familie im Weg steht – und über einen Fehler lässt sich damit
+          reden, ohne zu erklären, wer gemeint ist.</p>
+        <p class="hintline">Gibt es nur in einem Zweig, hier: ${esc(zw.name)}</p>
+        <button class="btn primary" id="uebungsbaum" style="margin-top:12px">
+          Übungsbaum anlegen</button></div>` : ""}
+
       <div class="sec"><h3>Neu anfangen</h3>
         <p class="prose">Mit einem Menschen beginnen und von dort weiterbauen – Eltern,
           Ehe, Kinder. Die Verwandtschaft rechnet sich daraus von selbst.</p>
-        <button class="btn${old ? "" : " primary"}" id="firstPerson" style="margin-top:12px">
+        <button class="btn${old || zw ? "" : " primary"}" id="firstPerson" style="margin-top:12px">
           Ersten Menschen eintragen</button></div>
 
       <div class="sec"><h3>Aus einer Datei</h3>
@@ -4608,6 +4714,7 @@ if(EDIT){
     const pick = e.target.closest("[data-tree]");
     if(pick && !pick.disabled){ switchTree(pick.dataset.tree); return; }
     if(e.target.closest("#newTree")){ newTree(); return; }
+    if(e.target.closest("#uebungsbaum")){ makeUebungsbaum(); return; }
     if(e.target.closest("#saveTreeName")){ renameTree(); return; }
     if(e.target.closest("#dropTree")){ dropTree(); return; }
     if(e.target.closest("#moveData")){ setDataDir(true); return; }
@@ -4644,6 +4751,7 @@ if(EDIT){
       return;
     }
     if(e.target.closest("#firstPerson")){ openEditor(null); return; }
+    if(e.target.closest("#uebungsbaum")){ makeUebungsbaum(); return; }
     if(e.target.closest("#takeOver")){ takeOver(); return; }
     if(e.target.closest("#doUmzug")){ runUmzug(); return; }
     if(e.target.closest("#startZeigen")){ setDataDir(false, "startOrdner"); return; }
@@ -4759,6 +4867,18 @@ document.getElementById("hintDot").addEventListener("click", () =>
 
   const check = document.getElementById("checkBtn");
   if(check && !(DATA.checks && DATA.checks.length)) check.hidden = true;
+})();
+
+/* Läuft das hier aus einem Zweig, sagt es die Fensterleiste.  Zwei Fenster
+   desselben Programms sehen sonst gleich aus, und nach dem dritten Wechsel
+   weiß niemand mehr, welches den Umbau zeigt und welches den alten Stand. Die
+   Kennung ist ein Fingerabdruck des Quelltextes: dieselben sieben Zeichen wie
+   im Werkzeug, mit dem gearbeitet wird - stimmen sie überein, ist es derselbe
+   Stand.  Im Hauptordner ist `EDIT.zweig` leer und hier passiert nichts. */
+(function nameTheWindow(){
+  const zw = EDIT && EDIT.zweig;
+  if(!zw) return;
+  document.title = "Stammbaum · " + zw.name + (zw.kennung ? " · " + zw.kennung : "");
 })();
 
 draw();

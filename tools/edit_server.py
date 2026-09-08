@@ -47,6 +47,7 @@ import edits as person_lib  # noqa: E402
 import export as export_lib  # noqa: E402
 import format as schema  # noqa: E402  - "format" is a builtin, hence the rename
 import store  # noqa: E402
+import zweig  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -262,6 +263,9 @@ def read_state(tree: dict) -> dict:
         "format": schema.FORMAT,
         "repo": REPO_URL,
         "umgewandelt": (tree.get("meta") or {}).get("umgewandelt"),
+        # `None` im Hauptordner: dort gibt es keinen Zweig, und alles, was
+        # daran haengt - Fenstertitel, Uebungsbaum - faellt damit still weg.
+        "zweig": zweig.info(ROOT),
     }
 
 
@@ -452,6 +456,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.api_export()
             if route == "/api/new":
                 return self.api_new()
+            if route == "/api/uebungsbaum":
+                return self.api_uebungsbaum()
             if route == "/api/take-over":
                 return self.api_take_over()
             if route == "/api/import":
@@ -611,6 +617,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Start an empty tree - what another family sees on their first day."""
         title = (self.body().get("titel") or "").strip() or "Neuer Stammbaum"
         slug = store.create(title)
+        self.send_json({"ok": True, "offen": slug})
+
+    def api_uebungsbaum(self) -> None:
+        """Zwoelf Uebungspersonen anlegen - nur in einem Zweig.
+
+        Der Riegel steht hier und nicht nur in der Oberflaeche: ein Knopf, den
+        die Seite nicht zeichnet, ist trotzdem eine Adresse, die jemand aufrufen
+        kann.  Im Hauptordner hat ein Uebungsbaum nichts neben der echten
+        Familie zu suchen, also endet er hier.
+        """
+        if not zweig.info(ROOT):
+            return self.fail(403, "Uebungsbaeume gibt es nur in einem Zweig.")
+        tree = store.empty_tree("Uebungsbaum")
+        tree["people"] = zweig.uebungsbaum()
+        tree["meta"]["root"] = 6          # mittlere Generation: nach oben wie unten Platz
+        tree["meta"]["source"] = "Erfundene Personen zum Ausprobieren."
+        slug = store.create("Uebungsbaum", tree)
         self.send_json({"ok": True, "offen": slug})
 
     def api_open_tree(self) -> None:

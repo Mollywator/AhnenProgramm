@@ -63,16 +63,12 @@ exit /b 0
 for %%A in ("%CD%") do set "ZWEIG=%%~nxA"
 set "AHNEN_DATEN=%LOCALAPPDATA%\Ahnenprogramm\Testdaten\%ZWEIG%"
 if not exist "%AHNEN_DATEN%" md "%AHNEN_DATEN%" 2>nul
-title Stammbaum - Zweig %ZWEIG%
-echo.
-echo   ZWEIG %ZWEIG%
-echo   Es wird NICHT auf den echten Stammbaeumen gearbeitet.
-echo   Testdaten: %AHNEN_DATEN%
-echo.
-echo   Dieses Fenster gehoert zum Programm - zu bleibt es, wenn das Programm
-echo   beendet wird.
-echo.
-rem  Mit Konsole, damit sichtbar bleibt, dass hier ein Zweig laeuft und nicht
-rem  der Hauptordner.
-python.exe "tools\edit_server.py" %*
-exit /b %ERRORLEVEL%
+
+rem  Auch der Zweig startet ohne Konsole. Frueher stand hier eines: es sollte
+rem  sichtbar machen, dass gerade nicht der Hauptordner laeuft. Das war richtig
+rem  gedacht und am falschen Ort - wer an drei Zweigen arbeitet, hat dann sechs
+rem  Fenster, und die Haelfte davon zeigt nichts. Dieselbe Auskunft steht jetzt
+rem  dort, wo sie ohnehin gelesen wird: in der Titelleiste des Programmfensters,
+rem  zusammen mit einer Kennung des Quelltextstands. Siehe tools\zweig.py.
+start "" pythonw.exe "tools\edit_server.py" %*
+exit /b 0
