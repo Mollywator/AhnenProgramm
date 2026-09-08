@@ -102,3 +102,56 @@ Portraits, documents and the built page are files in the tree's folder, not
 content of `baum.json`. The file names in `photo` and `documents` point at them.
 A tree folder is therefore only complete with its folders — which is why handing
 one over is handing over the folder, not the file.
+
+---
+
+## Version 2
+
+Since 08.09.2026.  One new field on a person, `link`, and nothing else changed.
+
+A person may be carried by more than one tree.  The case it exists for: a
+wife's family grows in her own tree, not in her husband's, but she herself has
+to stand in both — he needs her for his marriage, she needs herself to hang her
+parents off.  The record is therefore **copied into every tree that carries
+her**, not referenced, so that any one tree still opens and reads correctly on
+its own.
+
+Why the version number went up for an added field: an older program opens a
+version 2 file without complaint, shows the family, and drops `link` on the
+first save — silently unlinking two families. Refusing to open is the only
+answer that cannot lose anything.
+
+### `link`, on a person
+
+`null` for everybody who is only in this tree, which is almost everybody.
+Otherwise:
+
+| Field | Type | What it is |
+|---|---|---|
+| `uid` | string | the shared identity, `p-` and twelve hex characters. Two records with this same value anywhere are the same person. Never reused, never changed |
+| `trees` | list | every tree carrying this person: `{"slug": …, "id": int}`. The `id` differs per tree — numbers are local |
+| `via` | string or null | the `uid` of the person this one arrived as a relative of. Set on everybody who travelled along with a link, `null` on the person who was linked herself |
+| `hidden` | bool | hidden in **this** tree only. Never synchronised |
+
+`uid` and `trees` are the same in every tree; `via` and `hidden` are local.
+
+### What is written where
+
+Saving a linked person writes the fields belonging to the *person* into every
+tree in `trees`, and leaves everything belonging to the *tree* alone:
+
+| | |
+|---|---|
+| written to every tree | name and its parts, sex, birth, death, burial, residences, events, notes, occupation, religion, free text, contact |
+| local to one tree | `id`, `parents`, `spouses`, `children`, `photo`, `documents`, `link.via`, `link.hidden` |
+
+The links between people are numbers, and numbers are local — which is why the
+two trees may join the same person to different relatives without contradicting
+each other. That is the point: her parents are in her tree, his are in his.
+
+### Reading one without the program
+
+A `link` can be ignored entirely. Every tree carries whole people, so a version
+2 file read as if it were version 1 — skipping the unknown field — is complete
+and correct for that family. Only the knowledge that two files describe one
+person is lost.

@@ -300,6 +300,10 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
   color:var(--ink-3);margin:10px 0 0;
 }
 .legend s{text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+/* An entry that hides itself needs this: the display above outranks the
+   `hidden` attribute, so without it the linked key sits in the legend of every
+   tree that has no link at all. */
+.legend s[hidden]{display:none}
 .legend .swatch{width:22px;height:13px;border:1px solid var(--rule-2);border-radius:2px;background:var(--card)}
 .legend .swatch.blood{border-left:3px solid var(--accent)}
 .legend .swatch.married{border-style:dashed;border-color:var(--heirat-line);background:var(--heirat-fill)}
@@ -308,6 +312,33 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
 .legend .pickable:hover{color:var(--ink-2)}
 .legend .pickable[aria-pressed="true"]{color:var(--accent);border-bottom-color:var(--accent)}
 .legend b{font-weight:500;color:var(--ink-2)}
+.legend .swatch.linked{
+  display:inline-flex;align-items:center;justify-content:center;
+  border-style:solid;color:var(--accent);font-size:10px;line-height:1;
+}
+
+/* The mark in the box's bottom right corner: this person is also kept in
+   another tree.  No opacity, no filter and no blend - inside the zoomed plane
+   any of those would draw it through a buffer of its own and go soft. */
+.linkmark{
+  position:absolute;right:3px;bottom:2px;z-index:2;pointer-events:none;
+  font-family:var(--sans);font-size:10px;line-height:1;color:var(--accent);
+}
+.plane.small .linkmark,.plane.micro .linkmark{display:none}
+
+/* The two little menus beside the view buttons. */
+.modewrap{position:relative;display:inline-flex;align-items:center;gap:2px}
+.nearmore{padding:0 5px;min-width:0;font-size:11px}
+.popover{
+  position:absolute;top:calc(100% + 6px);left:0;z-index:40;
+  display:flex;flex-direction:column;gap:7px;white-space:nowrap;
+  background:var(--card);border:1px solid var(--rule-2);border-radius:4px;
+  box-shadow:var(--shadow);padding:9px 11px;
+  font-family:var(--sans);font-size:12.5px;letter-spacing:0;text-transform:none;
+  color:var(--ink-2);
+}
+.popover[hidden]{display:none}
+.popover label{display:flex;align-items:center;gap:7px;cursor:pointer}
 .manual h3{margin-top:0}
 .manual p{margin:0 0 10px;font-size:15.5px;line-height:1.6;color:var(--ink-2);max-width:62ch}
 .manual p:last-child{margin-bottom:0}
@@ -709,6 +740,11 @@ html[data-edit] .editonly.flex{display:flex !important}
   </div>
   <div class="spacer"></div>
   <div class="tools">
+    <!-- Filled by applyJump when this tree was reached by following a link,
+         empty otherwise. It names the tree it goes back to, and it returns to
+         the person the jump started from rather than to whatever was last the
+         centre over there. -->
+    <span id="backBar" hidden></span>
     <button class="btn" id="helpBtn">Anleitung</button>
     <button class="btn" id="checkBtn">Prüfbericht</button>
     <button class="btn editonly" id="importBtn">Importieren</button>
@@ -746,10 +782,28 @@ html[data-edit] .editonly.flex{display:flex !important}
         <button class="btn tipped" data-design="sippen" aria-pressed="false" data-tip="Eingeheiratete Familien als eigene Inseln mit Namen">Sippen</button>
       </div>
       <div class="modes" id="modes">
-        <button class="btn tipped" data-mode="nah" aria-pressed="true" data-tip="Drei Generationen um den Mittelpunkt">Nahe Familie</button>
+        <span class="modewrap">
+          <button class="btn tipped" data-mode="nah" aria-pressed="true" data-tip="Drei Generationen um den Mittelpunkt">Nahe Familie</button>
+          <!-- Who else counts as "near" is a question that exists without any
+               link: a brother-in-law is in this tree already.  So the menu
+               belongs to the view and applies to everybody, rather than being
+               a second set of rules for linked people only. -->
+          <button class="btn iconbtn nearmore" id="nearMore" aria-expanded="false"
+                  title="Wer noch zur nahen Familie zählt">▾</button>
+          <span class="popover" id="nearMenu" hidden>
+            <label><input type="checkbox" data-near="schwiegergross"> Schwiegergroßeltern</label>
+            <label><input type="checkbox" data-near="schwager"> Schwager und Schwägerin</label>
+            <label><input type="checkbox" data-near="neffen"> Angeheiratete Neffen und Nichten</label>
+          </span>
+        </span>
         <button class="btn tipped" data-mode="ahnen" aria-pressed="false" data-tip="Nur die Vorfahren – die einzige Ansicht ganz ohne Kreuzungen">Ahnentafel</button>
         <button class="btn tipped" data-mode="blut" aria-pressed="false" data-tip="Alle Blutsverwandten des Mittelpunkts">Ganze Linie</button>
-        <button class="btn tipped" data-mode="alle" aria-pressed="false" data-tip="Alle Personen im Baum">Alle</button>
+        <span class="modewrap">
+          <button class="btn tipped" data-mode="alle" aria-pressed="false" data-tip="Alle im Baum und wer eingeheiratet hat – nicht die Familien aus verknüpften Stammbäumen">Alle</button>
+          <span class="popover" id="alleMenu" hidden>
+            <label><input type="checkbox" id="showLinked"> Verknüpfte Personen mit anzeigen</label>
+          </span>
+        </span>
       </div>
       <div class="zoom">
         <button class="btn iconbtn tipped" id="zoomOut" data-tip="Kleiner">−</button>
@@ -767,6 +821,7 @@ html[data-edit] .editonly.flex{display:flex !important}
       <s class="pickable" data-only="blut" title="Nur Blutsverwandte hervorheben"><span class="swatch blood"></span> blutsverwandt <b id="cBlut"></b></s>
       <s class="pickable" data-only="heirat" title="Nur Angeheiratete hervorheben"><span class="swatch married"></span> angeheiratet <b id="cHeirat"></b></s>
       <s class="pickable" data-only="indirekt" title="Nur deren Familien hervorheben"><span class="swatch indirect"></span> deren Familie <b id="cIndirekt"></b></s>
+      <s id="legendLinked" hidden title="Diese Person wird in einem zweiten Stammbaum geführt – dort steht ihre eigene Familie"><span class="swatch linked">⧉</span> auch in anderem Stammbaum <b id="cLinked"></b></s>
       <s id="legendCount"></s>
       <s class="footnote" id="footer" style="margin-left:auto"></s>
     </p>
@@ -786,7 +841,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.1.1";
+const VERSION = "1.2.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -1138,6 +1193,38 @@ function bloodSet(id){
   bloodCache.set(id, out);
   return out;
 }
+/* ---- the same person in another tree -------------------------------------
+   Everything here reads `p.link` and nothing else.  Somebody who is only in
+   this tree has none, so every one of these answers false for almost everybody
+   and the diagram behaves exactly as it did before links existed.
+
+   Declared here, above the view rules and the drawing, because that is where
+   they are first used.  They read `window.STAMMBAUM_EDIT` rather than the
+   `EDIT` const, which is initialised much further down: in the family's copy
+   of the page that object does not exist at all, and every one of these then
+   degrades to "not linked" instead of throwing. */
+const openSlug = () => ((window.STAMMBAUM_EDIT || {}).offen)
+                    || ((DATA.meta || {}).slug) || "";
+const linkOf = p => (p && p.link && typeof p.link === "object") ? p.link : null;
+const otherTrees = p => ((linkOf(p) || {}).trees || [])
+  .filter(t => t && t.slug && t.slug !== openSlug());
+const linkedElsewhere = p => otherTrees(p).length > 0;
+/* Arrived as somebody else's relative rather than in their own right.  This is
+   the flag the big views filter on - see alleSet. */
+const borrowed = p => !!(linkOf(p) || {}).via;
+const hiddenHere = p => !!(linkOf(p) || {}).hidden;
+const treeTitle = slug => {
+  const list = ((window.STAMMBAUM_EDIT || {}).baeume) || [];
+  const found = list.find(t => t.slug === slug);
+  return (found && found.titel) || slug;
+};
+
+/* Whether the big view also draws the married-in families that live in
+   another tree, and which optional degrees the near view reaches.  Both are
+   per reader and per browser - they change what is on screen, never the file. */
+let showLinked = false;
+const nearExtra = {schwiegergross: false, schwager: false, neffen: false};
+
 function nearSet(id){
   const seen = new Set([id]);
   const add = x => { if(BY_ID.has(x)) seen.add(x); };
@@ -1159,19 +1246,107 @@ function nearSet(id){
     for(const s of BY_ID.get(x).spouses) add(s);
   for(const s of p.spouses)
     for(const parent of (BY_ID.get(s) || {parents: []}).parents) add(parent);
+
+  /* The three optional degrees.  Off by default because the view is called
+     "near family" and each of them widens it by a whole branch; on when
+     somebody says so, for everybody in the tree and not only for the people
+     who happen to be linked. */
+  if(nearExtra.schwiegergross)
+    for(const s of p.spouses)
+      for(const parent of (BY_ID.get(s) || {parents: []}).parents)
+        for(const gp of (BY_ID.get(parent) || {parents: []}).parents) add(gp);
+  if(nearExtra.schwager){
+    // the partner's own siblings, and the partners of the centre's siblings
+    for(const s of p.spouses)
+      for(const parent of (BY_ID.get(s) || {parents: []}).parents)
+        for(const sib of (BY_ID.get(parent) || {children: []}).children) add(sib);
+    for(const parent of p.parents)
+      for(const sib of (BY_ID.get(parent) || {children: []}).children)
+        for(const sp of (BY_ID.get(sib) || {spouses: []}).spouses) add(sp);
+  }
+  if(nearExtra.neffen)
+    for(const parent of p.parents)
+      for(const sib of (BY_ID.get(parent) || {children: []}).children){
+        if(sib === id) continue;
+        for(const kid of (BY_ID.get(sib) || {children: []}).children){
+          add(kid);
+          for(const sp of (BY_ID.get(kid) || {spouses: []}).spouses) add(sp);
+        }
+      }
   return seen;
 }
+/* "Alle" means this tree's own people plus who married into it - and stops
+   there.  A borrowed person is somebody who arrived as a linked relative's
+   family; they belong to the other tree and are only ever drawn where the
+   relationship actually reaches them, which is the near view.
+
+   The one exception is the rule stated plainly: nothing higher than
+   married-in.  A borrowed person who is the partner of somebody in this tree
+   IS married-in and stays; so does a child of that partner, which is the
+   step-parent case - the child came with them and is part of this household.
+   Their parents are one step further out and drop off.
+
+   Without this the whole point of splitting the two families would be lost:
+   open "Alle" and the second family stands in the middle of the first. */
+function alleSet(){
+  const keep = new Set();
+  const own = [];
+  for(const p of DATA.people){
+    if(!borrowed(p)){ keep.add(p.id); own.push(p.id); }
+  }
+  const married = new Set();
+  for(const id of own)
+    for(const s of (BY_ID.get(id) || {spouses: []}).spouses)
+      if(BY_ID.has(s) && !keep.has(s)){ keep.add(s); married.add(s); }
+  // the step-parent's own child: one step down from a married-in partner,
+  // never one step up
+  for(const id of married)
+    for(const kid of (BY_ID.get(id) || {children: []}).children)
+      if(BY_ID.has(kid)) keep.add(kid);
+  return keep;
+}
+
+/* Somebody nobody in this tree is joined to. They are kept - a partner who was
+   entered but never connected is exactly how a real gap gets noticed - but the
+   diagram sets them apart rather than mixing them into the family. */
+function looseSet(){
+  const loose = new Set();
+  for(const p of DATA.people){
+    if(borrowed(p)) continue;
+    if(!(p.parents || []).length && !(p.spouses || []).length && !(p.children || []).length)
+      loose.add(p.id);
+  }
+  return loose;
+}
+
 function stageSet(){
-  if(centre === null) return new Set(DATA.people.map(p => p.id));
-  if(mode === "ahnen") return new Set(ancestors(centre).keys());
-  if(mode === "alle") return new Set(DATA.people.map(p => p.id));
+  const drop = set => {
+    // A person hidden in this tree is not drawn anywhere, ever. The centre is
+    // the one exception: having asked for somebody explicitly, being shown an
+    // empty stage instead would read as a broken program.
+    for(const id of Array.from(set)){
+      const p = BY_ID.get(id);
+      if(p && hiddenHere(p) && id !== centre) set.delete(id);
+    }
+    return set;
+  };
+  if(centre === null) return drop(new Set(DATA.people.map(p => p.id)));
+  if(mode === "ahnen") return drop(new Set(ancestors(centre).keys()));
+  if(mode === "alle"){
+    // The switch is the way to see the married-in families anyway - off by
+    // default, because the reason they are in another tree is that they make
+    // this view unreadable.
+    const seen = showLinked ? new Set(DATA.people.map(p => p.id)) : alleSet();
+    seen.add(centre);
+    return drop(seen);
+  }
   if(mode === "blut"){
     const seen = bloodSet(centre);
     for(const x of Array.from(seen))
       for(const s of BY_ID.get(x).spouses) if(BY_ID.has(s)) seen.add(s);
-    return seen;
+    return drop(seen);
   }
-  return nearSet(centre);
+  return drop(nearSet(centre));
 }
 
 /* ---- units --------------------------------------------------------------- */
@@ -1606,8 +1781,21 @@ function boxHTML(id, x, y, classes, tag){
         </span>
       </button>
       <button class="info" data-open="${id}" title="Personenblatt öffnen">Blatt</button>
+      ${linkMarkHTML(p)}
       ${id === armed ? addsHTML(id, p) : ""}
     </div>`;
+}
+
+/* The mark in the bottom right corner of the box.  Deliberately the corner
+   that is otherwise empty, and deliberately not a button: clicking a box means
+   one thing - make this person the centre - and a second target inside it
+   would make that gesture unreliable.  The sheet is where the link is acted
+   on. */
+function linkMarkHTML(p){
+  if(!linkedElsewhere(p)) return "";
+  const wo = otherTrees(p).map(t => treeTitle(t.slug)).join(" · ");
+  return `<span class="linkmark" aria-hidden="true"
+      title="Steht auch in: ${esc(wo)}">⧉</span>`;
 }
 
 /* The person the diagram is armed on: the box that was clicked last, and the
@@ -1844,6 +2032,17 @@ function renderTree(){
   document.getElementById("cHeirat").textContent = centrePerson ? counts.heirat : "–";
   document.getElementById("cIndirekt").textContent = centrePerson ? counts.indirekt : "–";
 
+  /* The linked entry earns its place in the legend only where there is
+     something to explain: a tree with no links shows the same four items it
+     always did, and the mark never appears without its key. */
+  let linked = 0;
+  for(const id of people) if(linkedElsewhere(BY_ID.get(id))) linked++;
+  const legendLinked = document.getElementById("legendLinked");
+  if(legendLinked){
+    legendLinked.hidden = linked === 0;
+    document.getElementById("cLinked").textContent = linked || "";
+  }
+
   document.getElementById("who").innerHTML = centrePerson
     ? `<b>${esc(centrePerson.name)}</b><span>${esc(lifespan(centrePerson) || "Lebensdaten unbekannt")}` +
       `${centrePerson.relation ? " · " + esc(centrePerson.relation) : ""}</span>`
@@ -1988,8 +2187,12 @@ function settleView(){
    first centre is picked - so the whole switch lives in one function. */
 function setMode(next){
   mode = next;
-  document.querySelectorAll("#modes .btn").forEach(o =>
+  document.querySelectorAll("#modes .btn[data-mode]").forEach(o =>
     o.setAttribute("aria-pressed", String(o.dataset.mode === next)));
+  // The "verknüpfte mit anzeigen" switch belongs to the view it changes, so it
+  // is on screen exactly while that view is.
+  const alleMenu = document.getElementById("alleMenu");
+  if(alleMenu) alleMenu.hidden = next !== "alle";
   // A fifteen generation tree cannot be read whole, so the big views start at
   // a legible zoom around the centre; "Einpassen" gives the bird's eye view.
   view.scale = next === "nah" ? 1 : next === "ahnen" ? 0.8 : 0.7;
@@ -2008,6 +2211,33 @@ function zoomBy(factor, cx, cy){
 }
 
 /* ----------------------------------------------------------------- detail */
+/* The note under the sheet's own buttons: this person is kept in a second
+   tree, and that is where her family stands.  In the program the tree name is
+   the button - one click and you are over there, on her.  In the file handed
+   to the family it is a footnote mark and a line at the bottom instead, which
+   is the form that also survives being printed. */
+function linkNoteHTML(p){
+  const wo = otherTrees(p);
+  if(!wo.length) return "";
+  if(IS_EDIT) return `<p class="hintline" style="margin-top:10px;max-width:44ch">
+    <span aria-hidden="true">⧉</span> Wird auch geführt in
+    ${wo.map(t => `<button type="button" class="plink" style="display:inline;padding:0 2px;border:0;background:none;color:var(--accent);text-decoration:underline;cursor:pointer" data-linkjump="${esc(t.slug)}:${t.id}">${esc(treeTitle(t.slug))}</button>`).join(" · ")}
+    – dort steht die eigene Familie.</p>`;
+  return `<p class="hintline" style="margin-top:10px;max-width:44ch">
+    <span class="fn">*${footnoteNo(p)}</span> Hat einen eigenen Stammbaum.</p>`;
+}
+
+/* The footnote numbers in the read-only file: counted per page load, in the
+   order the sheets are opened, so the mark in a box and the line at the foot
+   of the page always say the same number. */
+const footnotes = new Map();
+function footnoteNo(p){
+  const l = linkOf(p);
+  const key = (l && l.uid) || ("id" + p.id);
+  if(!footnotes.has(key)) footnotes.set(key, footnotes.size + 1);
+  return footnotes.get(key);
+}
+
 function sheetHTML(p){
   const rel = anyRelation(centre, p.id);
   const path = centre === null ? null : relationPath(centre, p.id);
@@ -2133,6 +2363,7 @@ function sheetHTML(p){
             : (IS_EDIT
                 ? "Merkt sich im Programm, wo du im Baum stehst."
                 : "Merkt sich in diesem Browser, wo du im Baum stehst. An der Datei ändert sich nichts.")}</p>
+          ${linkNoteHTML(p)}
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:12px">
           <button class="closer" data-close="1" aria-label="Schließen">×</button>
@@ -2556,6 +2787,228 @@ function docRows(){
   </div>`).join("")}</div>`;
 }
 
+/* ---- carrying out a link -------------------------------------------------- */
+async function runLink(){
+  if(!linkDraft || !linkDraft.ziel) return;
+  const info = document.getElementById("linkInfo");
+  const go = document.getElementById("linkGo");
+  if(go) go.disabled = true;
+  if(info) info.textContent = "Wird verknüpft …";
+  try{
+    const r = await api("/api/link?k=" + encodeURIComponent(EDIT.token),
+      {person: linkDraft.person, ziel: linkDraft.ziel, gruppen: linkDraft.gruppen});
+    (r.hinweise || []).forEach(h => say(h, true));
+    const wohin = treeTitle(linkDraft.ziel);
+    say(r.mitgenommen
+      ? `Verknüpft mit „${wohin}“ – ${r.mitgenommen + 1} Personen stehen jetzt in beiden.`
+      : `Verknüpft mit „${wohin}“.`);
+    // The tree in hand changed underneath us; the page is rebuilt from the
+    // server rather than patched, so the diagram and the register cannot show
+    // a state the file does not have.
+    location.reload();
+  }catch(err){
+    if(go) go.disabled = false;
+    if(info) info.textContent = "";
+    say("Nicht verknüpft – " + err.message, true);
+  }
+}
+
+async function hideLinked(){
+  if(!linkDraft) return;
+  try{
+    await api("/api/link-loesen?k=" + encodeURIComponent(EDIT.token),
+      {person: linkDraft.person, modus: "verstecken"});
+    say("Wird in diesem Stammbaum nicht mehr gezeichnet. In den anderen steht die Person weiter.");
+    location.reload();
+  }catch(err){ say("Nicht versteckt – " + err.message, true); }
+}
+
+/* Removing a linked person asks which trees, and pre-ticks nothing - the tick
+   IS the confirmation.  The tree in hand is only marked, so that a mis-click
+   cannot take a family out of a file nobody was looking at. */
+async function dropLinked(){
+  if(!linkDraft) return;
+  const p = BY_ID.get(linkDraft.person) || {};
+  const wo = otherTrees(p);
+  const alle = [{slug: EDIT.offen, titel: DATA.meta.title || EDIT.offen, hier: true}]
+    .concat(wo.map(t => ({slug: t.slug, titel: treeTitle(t.slug), hier: false})));
+  closeSheetHard();
+  document.body.insertAdjacentHTML("beforeend", `<div class="scrim" id="scrim">
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Person entfernen">
+      <div class="sheet-head" style="grid-template-columns:minmax(0,1fr) auto">
+        <div><div class="kicker">Entfernen · Nr. ${linkDraft.person}</div>
+          <h2>${esc(p.name || "Ohne Namen")}</h2>
+          <div class="node-meta" style="font-size:14px;margin-top:4px">
+            Aus welchen Stammbäumen soll diese Person raus?</div></div>
+        <button class="closer" data-close="1" aria-label="Schließen">×</button>
+      </div>
+      <div class="sheet-body"><div class="sec">
+        <div class="stack">${alle.map(t => `<label class="dispose-option"
+            style="display:flex;gap:9px;align-items:flex-start;cursor:pointer">
+            <input type="checkbox" data-dropbaum="${esc(t.slug)}">
+            <span class="dispose-label"><strong>${esc(t.titel)}</strong>
+              <span class="dispose-sub">${t.hier ? "der Stammbaum, in dem du gerade bist" : "verknüpft"}</span>
+            </span></label>`).join("")}</div>
+        <p class="hintline" style="margin-top:12px">Nichts ist vorgehakt – das Ankreuzen ist die
+          Bestätigung. Ein nicht angekreuzter Stammbaum behält die Person vollständig.
+          Was entfernt wird, liegt in der Sicherung des jeweiligen Baums.</p>
+      </div></div>
+      <div class="sheet-foot">
+        <button class="btn primary" id="dropGo">Entfernen</button>
+        <button class="btn" data-close="1">Abbrechen</button>
+      </div>
+    </div></div>`);
+  document.body.style.overflow = "hidden";
+  const go = document.getElementById("dropGo");
+  go.addEventListener("click", async () => {
+    const baeume = Array.from(document.querySelectorAll("[data-dropbaum]"))
+      .filter(b => b.checked).map(b => b.dataset.dropbaum);
+    if(!baeume.length){ say("Kein Stammbaum angekreuzt.", true); return; }
+    try{
+      await api("/api/link-loesen?k=" + encodeURIComponent(EDIT.token),
+        {person: linkDraft.person, modus: "loeschen", baeume});
+      location.reload();
+    }catch(err){ say("Nicht entfernt – " + err.message, true); }
+  });
+}
+
+/* ---- linking this person into another tree ------------------------------- */
+/* The button sits under the × in the form's top right corner: the corner is
+   where what happens TO this sheet lives, and linking is exactly that - it is
+   not a field of the person, so it does not belong in the body among them. */
+function linkButtonHTML(p){
+  const others = ((EDIT && EDIT.baeume) || []).filter(t => t.slug !== EDIT.offen);
+  if(!others.length) return "";        // one tree - nothing to link into
+  const wo = otherTrees(p);
+  return wo.length
+    ? `<button type="button" class="btn" data-linkopen="${p.id}"
+         title="Steht auch in: ${esc(wo.map(t => treeTitle(t.slug)).join(" · "))}">⧉ Verknüpfung …</button>`
+    : `<button type="button" class="btn" data-linkopen="${p.id}">In anderen Stammbaum verknüpfen</button>`;
+}
+
+/* The state the link dialog is in while it is open.  It is asked fresh from
+   the server on every change of target or group, because the answer depends on
+   both trees and neither is guessable from here. */
+let linkDraft = null;
+
+function linkDialogHTML(){
+  const d = linkDraft;
+  const p = BY_ID.get(d.person) || {};
+  const others = ((EDIT && EDIT.baeume) || []).filter(t => t.slug !== EDIT.offen);
+  const wo = otherTrees(p);
+  const gruppen = (EDIT && EDIT.linkGruppen) || [];
+
+  const bereits = wo.length ? `<div class="sec"><h3>Steht bereits in</h3>
+    <div class="stack">${wo.map(t => `<div class="docrow">
+      <span class="kind">⧉</span>
+      <span><b>${esc(treeTitle(t.slug))}</b><small>dort Nr. ${t.id}</small></span>
+      <button type="button" class="btn" data-linkjump="${esc(t.slug)}:${t.id}">Hinspringen</button>
+    </div>`).join("")}</div>
+    <p class="hintline" style="margin-top:10px">Was du an dieser Person änderst, steht
+      auch dort. Nummern, Fotos und Unterlagen bleiben je Stammbaum eigen.</p>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="btn" id="linkHide">In diesem Baum verstecken</button>
+      <button type="button" class="btn" id="linkDrop">Person entfernen …</button>
+    </div>
+    <p class="hintline" style="margin-top:8px"><b>Verstecken</b> lässt den Datensatz stehen und
+      zeichnet ihn nicht mehr – gilt nur hier. <b>Entfernen</b> fragt, aus welchen Stammbäumen.</p>
+  </div>` : "";
+
+  const vorschau = d.reisende === null
+    ? `<p class="hintline">Wird geprüft …</p>`
+    : (d.reisende.length
+        ? `<div class="people-links">${d.reisende.map(r =>
+            `<span class="plink" style="cursor:default">${esc(r.name)}<small>${esc(r.gruppe)}</small></span>`).join("")}</div>`
+        : `<p class="hintline">Nur ${esc(p.name || "diese Person")} selbst – keine Gruppe angehakt.</p>`);
+
+  const bekannt = (d.bekannt && d.bekannt.length)
+    ? `<div class="sec"><h3>Drüben gibt es diese Namen schon</h3>
+       <div class="people-links">${d.bekannt.map(b =>
+         `<span class="plink" style="cursor:default">${esc(b.name)}<small>${b.jahr ? "✶ " + b.jahr : "ohne Jahr"} · dort Nr. ${b.id}</small></span>`).join("")}</div>
+       <p class="hintline" style="margin-top:10px">Nichts wird automatisch zusammengelegt.
+         Zwei Menschen nach dem Namen zu verheiraten ist der Weg, auf dem eine falsche Großmutter
+         in eine Familie kommt – wer dieselbe Person ist, weiß nur, wer sie kennt. Trage sie
+         drüben von Hand zusammen, wenn es dieselbe ist.</p></div>`
+    : "";
+
+  return `<div class="scrim" id="scrim">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="In anderen Stammbaum verknüpfen">
+    <div class="sheet-head" style="grid-template-columns:minmax(0,1fr) auto">
+      <div>
+        <div class="kicker">Verknüpfen · Nr. ${d.person}</div>
+        <h2>${esc(p.name || "Ohne Namen")}</h2>
+        <div class="node-meta" style="font-size:14px;margin-top:4px">
+          Dieselbe Person in zwei Stammbäumen – einmal ändern, überall geändert.</div>
+      </div>
+      <button class="closer" data-close="1" aria-label="Schließen">×</button>
+    </div>
+    <div class="sheet-body">
+      ${bereits}
+      <div class="sec"><h3>${wo.length ? "In einen weiteren Stammbaum" : "In welchen Stammbaum"}</h3>
+        <div class="stack">${others.map(t => `<button type="button"
+            class="treerow${t.slug === d.ziel ? " jetzt" : ""}" data-linkziel="${esc(t.slug)}">
+            <span><b>${esc(t.titel)}</b><small>${t.personen}${t.personen === 1 ? " Person" : " Personen"}</small></span>
+            <span class="hintline">${t.slug === d.ziel ? "gewählt" : "wählen"}</span>
+          </button>`).join("")}</div>
+      </div>
+
+      <div class="sec"><h3>Wer kommt mit</h3>
+        <div class="stack">${gruppen.map(g => `<label class="dispose-option" style="display:flex;gap:9px;align-items:center;cursor:pointer">
+          <input type="checkbox" data-linkgruppe="${esc(g.id)}" ${d.gruppen.includes(g.id) ? "checked" : ""}>
+          <span>${esc(g.titel)}</span></label>`).join("")}</div>
+        <p class="hintline" style="margin-top:10px">Ganze Gruppen, keine einzelnen Personen.
+          Wer drei von vier Geschwistern will, nimmt alle vier mit und entfernt drüben eines –
+          dabei wird gefragt, aus welchen Stammbäumen.</p>
+      </div>
+
+      <div class="sec"><h3>Das wandert hinüber</h3>${vorschau}</div>
+      ${bekannt}
+    </div>
+    <div class="sheet-foot">
+      <button class="btn primary" id="linkGo" ${d.ziel ? "" : "disabled"}>Verknüpfen</button>
+      <button class="btn" data-close="1">Abbrechen</button>
+      <span class="grow"></span>
+      <span class="saveinfo" id="linkInfo"></span>
+    </div>
+  </div></div>`;
+}
+
+async function refreshLinkPreview(){
+  if(!linkDraft || !linkDraft.ziel) return;
+  linkDraft.reisende = null;
+  renderLinkDialog();
+  try{
+    const r = await api("/api/link-vorschau?k=" + encodeURIComponent(EDIT.token),
+      {person: linkDraft.person, ziel: linkDraft.ziel, gruppen: linkDraft.gruppen});
+    linkDraft.reisende = r.reisende || [];
+    linkDraft.bekannt = r.bekannt || [];
+  }catch(err){
+    linkDraft.reisende = [];
+    say("Vorschau nicht möglich – " + err.message, true);
+  }
+  renderLinkDialog();
+}
+
+function renderLinkDialog(){
+  closeSheetHard();
+  document.body.insertAdjacentHTML("beforeend", linkDialogHTML());
+  document.body.style.overflow = "hidden";
+}
+
+function openLinkDialog(id){
+  if(!EDIT) return;
+  const others = ((EDIT.baeume) || []).filter(t => t.slug !== EDIT.offen);
+  if(!others.length){ say("Es gibt nur diesen einen Stammbaum.", true); return; }
+  linkDraft = {person: id, ziel: others.length === 1 ? others[0].slug : null,
+               // all four ticked to begin with: the common case is the whole
+               // near family, and unticking is easier than hunting for what
+               // was meant to come along
+               gruppen: ((EDIT.linkGruppen) || []).map(g => g.id),
+               reisende: null, bekannt: []};
+  renderLinkDialog();
+  if(linkDraft.ziel) refreshLinkPreview();
+}
+
 /* ---- the whole form ------------------------------------------------------ */
 function formHTML(){
   const isNew = editingNew;
@@ -2574,7 +3027,10 @@ function formHTML(){
           ${isNew ? "Wird erst mit „Speichern“ in den Baum aufgenommen."
                   : "Änderungen gehen nach data/edits.json – der Bericht bleibt unberührt."}</div>
       </div>
-      <button class="closer" data-close="1" aria-label="Schließen">×</button>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:12px">
+        <button class="closer" data-close="1" aria-label="Schließen">×</button>
+        ${isNew ? "" : linkButtonHTML(draft)}
+      </div>
     </div>
 
     <div class="sheet-body" id="editForm">
@@ -3286,10 +3742,40 @@ document.addEventListener("keydown", e => {
     document.querySelectorAll(".legend .pickable").forEach(o =>
       o.setAttribute("aria-pressed", String(o.dataset.only === next)));
   }));
-  document.querySelectorAll("#modes .btn").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("#modes .btn[data-mode]").forEach(b => b.addEventListener("click", () => {
     setMode(b.dataset.mode);
     renderTree();
   }));
+
+  /* The two little menus beside the view buttons.  The "Alle" one shows
+     itself whenever that view is on, because its single switch is about what
+     is on screen right now; the "near" one is opened deliberately, because
+     its three are settings somebody goes looking for. */
+  const nearBtn = document.getElementById("nearMore");
+  const nearMenu = document.getElementById("nearMenu");
+  if(nearBtn && nearMenu){
+    nearBtn.addEventListener("click", e => {
+      e.stopPropagation();
+      const open = nearMenu.hidden;
+      nearMenu.hidden = !open;
+      nearBtn.setAttribute("aria-expanded", String(open));
+    });
+    document.addEventListener("click", e => {
+      if(nearMenu.hidden || nearMenu.contains(e.target) || nearBtn.contains(e.target)) return;
+      nearMenu.hidden = true;
+      nearBtn.setAttribute("aria-expanded", "false");
+    });
+    nearMenu.querySelectorAll("input[data-near]").forEach(box =>
+      box.addEventListener("change", () => {
+        nearExtra[box.dataset.near] = box.checked;
+        if(mode === "nah") renderTree();
+      }));
+  }
+  const linkedBox = document.getElementById("showLinked");
+  if(linkedBox) linkedBox.addEventListener("change", () => {
+    showLinked = linkedBox.checked;
+    if(mode === "alle") renderTree();
+  });
 })();
 document.getElementById("q").addEventListener("input", e => { query = e.target.value; renderList(); });
 document.querySelectorAll(".chip").forEach(chip => chip.addEventListener("click", () => {
@@ -3957,6 +4443,52 @@ async function switchTree(slug){
     await api("/api/open-tree?k=" + encodeURIComponent(EDIT.token), {slug});
     location.reload();
   }catch(err){ say("Nicht gewechselt – " + err.message, true); }
+}
+
+/* ---- jumping between trees ------------------------------------------------
+   Switching tree is a reload of the whole page, so what the jump wants to say
+   - land on this person, and remember where I came from - has to outlive it.
+   sessionStorage does that and nothing more: it is gone when the window
+   closes, it never reaches the file, and a second window has its own. */
+const JUMP_KEY = "stammbaum:sprung";
+
+async function jumpToTree(slug, personId){
+  const zurueck = {slug: EDIT.offen, person: centre, titel: DATA.meta.title || EDIT.offen};
+  try{
+    sessionStorage.setItem(JUMP_KEY, JSON.stringify({zu: personId, von: zurueck}));
+  }catch(e){ /* private window - the jump still works, only the way back is lost */ }
+  await switchTree(slug);
+}
+
+async function jumpBack(){
+  let von = null;
+  try{ von = JSON.parse(sessionStorage.getItem(JUMP_KEY) || "null"); }catch(e){}
+  if(!von || !von.von) return;
+  try{
+    sessionStorage.setItem(JUMP_KEY, JSON.stringify({zu: von.von.person, von: null}));
+  }catch(e){}
+  await switchTree(von.von.slug);
+}
+
+/* Read once on load: centre on the person that was jumped to, and put the way
+   back in the masthead.  Both are dropped silently when the person is not in
+   this tree - a link that was removed on the far side must not leave the page
+   pointing at a number that means somebody else now. */
+function applyJump(){
+  let sprung = null;
+  try{ sprung = JSON.parse(sessionStorage.getItem(JUMP_KEY) || "null"); }catch(e){ return; }
+  if(!sprung) return;
+  if(sprung.zu != null && BY_ID.has(sprung.zu)){
+    setCentre(sprung.zu);
+    setMode("nah");
+    renderTree();
+    renderList();
+  }
+  const bar = document.getElementById("backBar");
+  if(bar && sprung.von && sprung.von.slug){
+    bar.innerHTML = `<button class="btn" id="backToTree" title="Zurück in den Stammbaum, aus dem du gekommen bist">↩ zurück zu ${esc(sprung.von.titel || sprung.von.slug)}</button>`;
+    bar.hidden = false;
+  }
 }
 
 /* Die zwölf Übungspersonen holen.  Angelegt wird im Programm, nicht hier: der
@@ -4700,6 +5232,18 @@ if(EDIT){
   // Once somebody has answered the question themselves, the recognition stops
   // answering it for them - a suggestion that keeps overriding a choice is not
   // a suggestion.
+  // The four group boxes in the link dialog. Re-asked on every change,
+  // because who travels is the server's answer, not the page's guess.
+  document.addEventListener("change", e => {
+    const box = e.target.closest("[data-linkgruppe]");
+    if(!box || !linkDraft) return;
+    const id = box.dataset.linkgruppe;
+    linkDraft.gruppen = box.checked
+      ? linkDraft.gruppen.concat([id]).filter((v, i, a) => a.indexOf(v) === i)
+      : linkDraft.gruppen.filter(g => g !== id);
+    refreshLinkPreview();
+  });
+
   document.addEventListener("change", e => {
     if(e.target.id !== "ordnerMode") return;
     e.target.dataset.vonHand = "1";
@@ -4711,6 +5255,28 @@ if(EDIT){
   document.addEventListener("click", e => {
     const edit = e.target.closest("[data-edit-person]");
     if(edit){ openEditor(+edit.dataset.editPerson); return; }
+
+    /* ---- linking ---- */
+    const linkOpen = e.target.closest("[data-linkopen]");
+    if(linkOpen){ openLinkDialog(+linkOpen.dataset.linkopen); return; }
+    const linkZiel = e.target.closest("[data-linkziel]");
+    if(linkZiel && linkDraft){
+      linkDraft.ziel = linkZiel.dataset.linkziel;
+      linkDraft.bekannt = [];
+      refreshLinkPreview();
+      return;
+    }
+    const jump = e.target.closest("[data-linkjump]");
+    if(jump){
+      const [slug, id] = jump.dataset.linkjump.split(":");
+      jumpToTree(slug, +id);
+      return;
+    }
+    if(e.target.closest("#linkGo")){ runLink(); return; }
+    if(e.target.closest("#linkHide")){ hideLinked(); return; }
+    if(e.target.closest("#linkDrop")){ dropLinked(); return; }
+    if(e.target.closest("#backToTree")){ jumpBack(); return; }
+
     const pick = e.target.closest("[data-tree]");
     if(pick && !pick.disabled){ switchTree(pick.dataset.tree); return; }
     if(e.target.closest("#newTree")){ newTree(); return; }
@@ -4882,6 +5448,11 @@ document.getElementById("hintDot").addEventListener("click", () =>
 })();
 
 draw();
+
+/* Last, because it may set a centre and redraw: if this page was reached by
+   following a link, land on the person the link pointed at and offer the way
+   back.  Does nothing at all on an ordinary open. */
+if(IS_EDIT) applyJump();
 </script>
 </body>
 </html>

@@ -47,6 +47,7 @@ import edits as person_lib  # noqa: E402
 import export as export_lib  # noqa: E402
 import format as schema  # noqa: E402  - "format" is a builtin, hence the rename
 import store  # noqa: E402
+import verknuepfung  # noqa: E402  - the same person in more than one tree
 import zweig  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -259,6 +260,9 @@ def read_state(tree: dict) -> dict:
         "gespeichert": (tree.get("meta") or {}).get("gespeichert"),
         "offen": store.open_slug(),
         "baeume": store.listing(),
+        # The four groups a link may carry, in the order they are offered.
+        # Sent rather than hard-coded in the page so the two cannot drift.
+        "linkGruppen": [{"id": g, "titel": t} for g, t in verknuepfung.GRUPPEN],
         "programmversion": VERSION,
         "format": schema.FORMAT,
         "repo": REPO_URL,
@@ -468,6 +472,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.api_pick_folder()
             if route == "/api/open-tree":
                 return self.api_open_tree()
+            if route == "/api/link-vorschau":
+                return self.api_link_vorschau()
+            if route == "/api/link":
+                return self.api_link()
+            if route == "/api/link-loesen":
+                return self.api_link_loesen()
             if route == "/api/rename-tree":
                 return self.api_rename_tree()
             if route == "/api/discard-tree":
@@ -516,6 +526,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             pid = int(key)
             record = person_lib.fill_missing({**record, "id": pid})
             if pid in by_id:
+                # `link` is not a field of the form.  It is written only by
+                # /api/link and /api/link-loesen, so a record that arrives
+                # without one is silent about it rather than saying "none" -
+                # and a save must never be what quietly unlinks two families.
+                if record.get("link") is None and by_id[pid].get("link"):
+                    record["link"] = by_id[pid]["link"]
                 by_id[pid].update(record)
             else:
                 tree["people"].append(record)
@@ -535,7 +551,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         store.save(tree)
         self.send_json({"ok": True, "saved": tree["meta"].get("gespeichert"),
                         "nextId": store.next_id(tree),
-                        "count": len(tree["people"])})
+                        "count": len(tree["people"]),
+                        # What writing into the OTHER trees had to say. Empty
+                        # on every ordinary save; a line here means a linked
+                        # tree could not be reached and the page must say so.
+                        "hinweise": list(store.LETZTE_SPIEGEL_BERICHTE)})
 
     def api_set_root(self) -> None:
         """Remember which person the owner of this file counts as themselves.
@@ -643,6 +663,143 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.fail(404, "Diesen Stammbaum gibt es nicht.")
         store.set_open(slug)
         self.send_json({"ok": True, "offen": slug})
+
+    # ------------------------------------------- the same person, two trees
+    def api_link_vorschau(self) -> None:
+        """What would happen - asked before anything is written.
+
+        Answers in both directions, because both matter and only one of them
+        is obvious.  Forward: who would travel, by name.  Backward: who the
+        target tree ALREADY has under those names, so somebody about to link
+        their wife is told that her parents are over there already instead of
+        finding out afterwards by seeing them twice.
+        """
+        payload = self.body()
+        ziel_slug = (payload.get("ziel") or "").strip()
+        person_id = int(payload.get("person"))
+        gruppen = [g for g in (payload.get("gruppen") or []) if isinstance(g, str)]
+        if ziel_slug not in store.all_slugs():
+            return self.fail(404, "Diesen Stammbaum gibt es nicht.")
+
+        tree = current_tree()
+        person = next((p for p in tree["people"] if int(p["id"]) == person_id), None)
+        if not person:
+            return self.fail(404, "Diese Person gibt es nicht.")
+
+        reisende = verknuepfung.vorschau(tree, person_id, gruppen)
+        namen = [person.get("name") or ""] + [r["name"] for r in reisende]
+        try:
+            ziel = store.load(ziel_slug)
+        except store.ZuNeu as err:
+            return self.fail(409, str(err))
+
+        # The far side's own family, as it stands - the second half of "check
+        # both sides" and the reason a link never has to be undone to see it.
+        drueben = verknuepfung.schon_drueben(ziel, namen)
+        self.send_json({
+            "ok": True,
+            "person": {"id": person_id, "name": person.get("name") or ""},
+            "reisende": reisende,
+            "bekannt": drueben,
+            "ziel": {"slug": ziel_slug, "titel": store.heading(ziel_slug)["titel"],
+                     "personen": len(ziel.get("people") or [])},
+        })
+
+    def api_link(self) -> None:
+        """Carry a person, and the chosen groups, into another tree."""
+        payload = self.body()
+        ziel_slug = (payload.get("ziel") or "").strip()
+        person_id = int(payload.get("person"))
+        gruppen = [g for g in (payload.get("gruppen") or []) if isinstance(g, str)]
+        hier_slug = store.open_slug()
+        if ziel_slug not in store.all_slugs():
+            return self.fail(404, "Diesen Stammbaum gibt es nicht.")
+        if ziel_slug == hier_slug:
+            return self.fail(400, "Das ist der Stammbaum, in dem du gerade bist.")
+
+        tree = current_tree()
+        try:
+            ziel = store.load(ziel_slug)
+        except store.ZuNeu as err:
+            return self.fail(409, str(err))
+
+        ergebnis = verknuepfung.knuepfen(
+            tree, hier_slug, person_id, ziel, ziel_slug, gruppen,
+            person_lib.blank_person, store.next_id)
+
+        # The target first: it is the one gaining people, and a half-written
+        # link is better pointing at somebody who exists than at nobody.
+        store.save(ziel, ziel_slug)
+        store.save(tree, hier_slug)
+        self.send_json({"ok": True, **ergebnis,
+                        "ziel": ziel_slug,
+                        "hinweise": list(store.LETZTE_SPIEGEL_BERICHTE)})
+
+    def api_link_loesen(self) -> None:
+        """Take a linked person out of one tree - hidden, or gone.
+
+        Deliberately no third option that merely cuts the link and leaves the
+        record: that hands somebody two separate people who look identical and
+        drift apart from then on, which is more work afterwards, not less.
+
+        `verstecken` keeps the record and stops drawing it, which is the answer
+        for a relative somebody no longer wants to see but does not want to
+        lose.  `loeschen` removes it from the trees that were named, and only
+        from those - a tree not ticked keeps its copy.
+        """
+        payload = self.body()
+        person_id = int(payload.get("person"))
+        modus = (payload.get("modus") or "verstecken").strip()
+        baeume = [s for s in (payload.get("baeume") or []) if isinstance(s, str)]
+        hier_slug = store.open_slug()
+        if modus not in ("verstecken", "loeschen"):
+            return self.fail(400, "Unbekannter Modus.")
+
+        tree = current_tree()
+        person = next((p for p in tree["people"] if int(p["id"]) == person_id), None)
+        if not person:
+            return self.fail(404, "Diese Person gibt es nicht.")
+
+        if modus == "verstecken":
+            link = dict(verknuepfung.link_von(person) or {})
+            link["hidden"] = True
+            person["link"] = link
+            store.save(tree, hier_slug)
+            return self.send_json({"ok": True, "modus": modus, "baeume": [hier_slug]})
+
+        betroffen = baeume or [hier_slug]
+        entfernt: list[str] = []
+        for slug in betroffen:
+            if slug not in store.all_slugs():
+                continue
+            eigener = slug == hier_slug
+            ziel = tree if eigener else store.load(slug)
+            if eigener:
+                pid = person_id
+            else:
+                eintrag = verknuepfung.eintrag_fuer(person, slug)
+                if not eintrag:
+                    continue
+                pid = int(eintrag["id"])
+            ziel["people"] = [p for p in ziel.get("people") or []
+                              if int(p["id"]) != pid]
+            ziel["marriages"] = [m for m in ziel.get("marriages") or []
+                                 if pid not in [int(x) for x in m.get("people", [])]]
+            # The others must stop naming her, or the link list points at a
+            # person the file no longer has.
+            for rest in ziel.get("people") or []:
+                rlink = verknuepfung.link_von(rest)
+                if not rlink:
+                    continue
+                rlink["trees"] = [t for t in (rlink.get("trees") or [])
+                                  if not (t.get("slug") == slug)]
+            if not eigener:
+                store.save(ziel, slug)
+            entfernt.append(slug)
+
+        if hier_slug in entfernt:
+            store.save(tree, hier_slug)
+        return self.send_json({"ok": True, "modus": modus, "baeume": entfernt})
 
     def api_rename_tree(self) -> None:
         """Name and origin of a tree - the two lines a person fills in."""

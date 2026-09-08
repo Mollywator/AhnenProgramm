@@ -300,6 +300,7 @@ Where to change what:
 | `tools/template.html` | the page - all of it. Style, diagram, editor, exporter. Save and reload the window; the render notices the file changed. |
 | `tools/store.py` | the data folder and the trees in it |
 | `tools/edits.py` | what a person is made of, and the two link rules |
+| `tools/verknuepfung.py` | one person in several trees: what a link is, what travels, what is merged |
 | `tools/edit_server.py` | the back end: routes, uploads, window lifetime |
 | `tools/export.py`, `baum.py`, `gedcom.py` | going out and coming back in |
 | `tools/build_site.py` | folding a tree into the page |
@@ -437,6 +438,65 @@ relationship label recomputes itself.
 year of birth, are listed and left alone.  Joining two people by name is how a
 family file quietly acquires a wrong grandmother, and the two who married each
 other know which two they are in a way no name matching does.
+
+### Keeping them apart, and joined at one person
+
+Importing puts two families into *one* file.  The other case is the common one
+and wants the opposite: a wife's family should grow in **her own** tree, and
+still be reachable from his.  She has to stand in both - he needs her to draw
+his marriage, she needs herself to hang her parents off - so she is one person
+carried by two files.  That is a **link**, and `tools/verknuepfung.py` is all
+of it.
+
+**The record is copied, not referenced.**  A tree has to survive alone: it goes
+to relatives on a stick, it is backed up, it is opened in ten years.  A record
+that only points into another file is empty the moment that file is missing,
+and removing a tree from the program would then silently gut a second family.
+So both files carry the whole person, and saving writes to every tree that has
+her - `store.spiegeln`, straight after the tree in hand is safely on disk.
+That order is deliberate: a second family's folder that has been renamed or
+made read-only is reported, never allowed to cost the save somebody is watching.
+
+What travels is the person; what stays is the tree.  Name, dates, places,
+occupation, life stations go to every copy.  The number, the parents, the
+spouses, the children, the portrait and the documents stay local - which is
+exactly why the two trees can join her to different relatives without
+contradicting each other.  Her parents are in her tree, his are in his, and
+neither file has to know about the other's.
+
+**Four groups travel with her, whole or not at all:** partner, children,
+parents, siblings - offered in that order, because a partner and the children
+are what make her placeable at all on the far side and the rest is context.
+Half a set of siblings is a decision nobody remembers taking; three of four is
+done by taking all four and removing one afterwards, which asks per tree what
+should happen.  The dialog names the people by name before anything is written,
+and it also says who the target tree **already has** under those names - asked
+in both directions, because the second half is the one nobody thinks to check
+until they see somebody twice.  Nothing is matched automatically, for the same
+reason as above.
+
+`link.via` is what keeps the two families apart afterwards.  It is set on
+everybody who travelled *along with* somebody, empty on the person who was
+linked herself.  So the wife is in her husband's "Alle" - she married in - and
+her parents are not: they are one step further out, and the view stops at
+married-in.  A step-parent's own child is on the near side of that line and
+stays, which is the one case where the rule is not simply "one step".
+
+A linked person can be taken out of a tree two ways, and deliberately not a
+third.  **Verstecken** keeps the record and stops drawing it, in this tree
+only - for a relative somebody no longer wants to see but does not want to
+lose.  **Entfernen** asks which trees, ticks nothing in advance, and removes
+her only from those; the tree in hand is marked but not pre-ticked, so the tick
+is the confirmation.  What there is no button for is cutting the link and
+leaving both records: that hands somebody two identical people who drift apart
+from that day on, which is more work afterwards rather than less.
+
+Two copies can disagree if a tree is edited outside the program.
+`verknuepfung.zusammenfuehren` is the answer and it **merges rather than
+picks**: lists - life stations, residences, notes - are unioned without asking,
+because one person enters the marriage and another enters the job and both
+belong to her.  Only single values that cannot both be true, two different
+dates of birth, are reported as a conflict.
 
 ### Where the edits go
 

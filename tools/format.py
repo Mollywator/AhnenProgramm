@@ -53,7 +53,7 @@ true for ever and is what makes an old backup readable at all.
 from __future__ import annotations
 
 # The shape this program writes.  Raised by one whenever the shape changes.
-FORMAT = 1
+FORMAT = 2
 
 # The oldest shape that can still be brought forward.  Everything below this is
 # refused rather than mangled - see the note about dropping conversions above.
@@ -101,11 +101,22 @@ def zu_alt(tree: dict) -> bool:
 #
 # A step takes the tree and changes it in place.  It may assume the tree is
 # exactly in shape `von` - that is what running them in order buys.
+def _von_1_auf_2(tree: dict) -> None:
+    """Give every person the empty `link` field.
+
+    Nothing is computed and nothing can go wrong: a tree written before links
+    existed has no linked people by definition, so the honest value everywhere
+    is "not linked".  The step exists so that every record has the same shape
+    afterwards - a reader may then ask `person["link"]` without guarding.
+    """
+    for person in tree.get("people") or []:
+        person.setdefault("link", None)
+
+
 SCHRITTE: list[dict] = [
-    # Example of the shape an entry takes, for whoever adds the first real one:
-    #
-    # {"von": 1, "was": "Wohnorte bekommen ein Von-Bis statt einer Jahreszahl",
-    #  "tun": _von_1_auf_2},
+    {"von": 1, "was": "Jede Person bekommt das Feld für die Verknüpfung in "
+                      "einen anderen Stammbaum (leer)",
+     "tun": _von_1_auf_2},
 ]
 
 

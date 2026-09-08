@@ -75,3 +75,9 @@ CLAUDE.local.md
 # in den niemand versehentlich ein Familienfoto legt.
 !docs/bilder/
 !docs/bilder/*.png
+
+# Konzeptseiten und ihre Entscheidungsverlaeufe. Sie entstehen beim Planen,
+# gehoeren dem Rechner auf dem geplant wurde, und was aus ihnen folgt steht
+# danach im Code, im CHANGELOG und in den Issues. Sie bleiben liegen - sie
+# werden nur nicht hochgeladen.
+docs/concepts/

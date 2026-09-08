@@ -58,6 +58,7 @@ EXTRA_FIELDS = (
     "freetext",     # the free note field under the sheet
     "documents",    # [{file, title, kind, added}] - scans in data/dokumente/<id>
     "edited",       # ISO timestamp of the last save
+    "link",         # the same person in another tree - see verknuepfung.py
 )
 
 ALL_FIELDS = BASE_FIELDS + EXTRA_FIELDS
@@ -116,7 +117,7 @@ def blank_person(person_id: int) -> dict:
         "call_name": None, "birth_name": None, "title": None,
         "religion": None, "burial": None,
         "residences": [], "contact": None, "freetext": None,
-        "documents": [], "edited": None,
+        "documents": [], "edited": None, "link": None,
     }
 
 

@@ -206,6 +206,11 @@ def main() -> None:
     # The page does not need the raw source blobs of the report; they are long,
     # repetitive and already summarised in the per person fields.
     slim = json.loads(json.dumps(data))
+    # Which tree this page IS.  A linked person lists every tree that carries
+    # her, this one included, and without knowing its own name the page would
+    # offer a note pointing at itself.  In the program the same answer comes
+    # from the editing object; the family's copy has only this.
+    slim.setdefault("meta", {})["slug"] = slug
     for person in slim["people"]:
         if person.get("source_text") and len(person["source_text"]) > 1200:
             person["source_text"] = person["source_text"][:1200].rstrip() + " …"

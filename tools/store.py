@@ -82,6 +82,7 @@ import unicodedata
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import edits as person_lib  # noqa: E402
 import format as schema  # noqa: E402  - "format" is a builtin, hence the rename
+import verknuepfung  # noqa: E402  - the same person in more than one tree
 
 FOLDER_NAME = "Stammbaum-Daten"
 APP_DIRNAME = "Ahnenprogramm"
@@ -113,6 +114,11 @@ REBUILDABLE = ("Export", "Stammbaum.html", "Namensliste.txt")
 # Enough saves to get back past a bad afternoon, few enough that the folder
 # stays readable when somebody opens it looking for something.
 KEEP_BACKUPS = 20
+
+# What the last save had to say about the OTHER trees it wrote into - a tree
+# that could not be found or not be written.  Read by the edit server straight
+# after `save` and shown in the page; empty on every save that went cleanly.
+LETZTE_SPIEGEL_BERICHTE: list[str] = []
 
 
 # ------------------------------------------------------------------- folders
@@ -687,6 +693,15 @@ def save(tree: dict, slug: str | None = None) -> str:
         json.dump(tree, fh, ensure_ascii=False, indent=1)
     os.replace(tmp, path)
 
+    # Now that this tree is safely on disk, carry the linked people into the
+    # other trees that hold them.  Reported rather than raised - see spiegeln.
+    global LETZTE_SPIEGEL_BERICHTE
+    try:
+        LETZTE_SPIEGEL_BERICHTE = spiegeln(tree, slug)
+    except Exception as err:                                # noqa: BLE001
+        LETZTE_SPIEGEL_BERICHTE = ["Verknüpfte Stammbäume nicht aktualisiert "
+                                   "(%s)." % type(err).__name__]
+
     # A readable index of who is in which tree, refreshed on every save so it
     # is never one edit behind.  Never worth losing a save over, though.
     try:
@@ -714,6 +729,79 @@ def keep_backup(path: str, slug: str) -> None:
 def next_id(tree: dict) -> int:
     used = [int(p["id"]) for p in tree.get("people") or []]
     return max([person_lib.FIRST_NEW_ID - 1] + used) + 1
+
+
+# ------------------------------------------- the same person in another tree
+def spiegeln(tree: dict, slug: str) -> list[str]:
+    """Carry every linked person's own fields into the other trees that hold her.
+
+    Called from `save`, after the tree in hand is written.  It is deliberately
+    the second step and not the first: the tree the user is looking at must
+    land on disk even if a second family's folder has meanwhile been renamed,
+    moved or made read-only.  A mirror that cannot be written is reported, not
+    raised - losing the save in front of somebody to protect a file they are
+    not looking at would be the wrong way round.
+
+    Only fields belonging to the person travel (`verknuepfung.GETEILT`); the
+    id, the family links, the photo and the documents stay where they are,
+    because they are facts about a tree rather than about a human being.
+    """
+    berichte: list[str] = []
+    zu_schreiben: dict[str, dict] = {}      # slug -> loaded tree
+    beruehrt: set[str] = set()
+
+    for person in tree.get("people") or []:
+        ziele = verknuepfung.andere_baeume(person, slug)
+        if not ziele:
+            continue
+        geteilt = verknuepfung.einsammeln(person)
+        for ziel in ziele:
+            fremd_slug = ziel.get("slug")
+            fremd_id = ziel.get("id")
+            if not fremd_slug or fremd_id is None:
+                continue
+            if fremd_slug not in zu_schreiben:
+                if not has_tree(fremd_slug):
+                    berichte.append("Stammbaum „%s“ nicht gefunden - "
+                                    "Verknüpfung steht, aber dort wurde nichts "
+                                    "geändert." % fremd_slug)
+                    zu_schreiben[fremd_slug] = {}
+                    continue
+                try:
+                    with open(tree_path(fremd_slug), encoding="utf-8") as fh:
+                        zu_schreiben[fremd_slug] = json.load(fh)
+                except (OSError, ValueError) as err:
+                    berichte.append("Stammbaum „%s“ nicht lesbar (%s)."
+                                    % (fremd_slug, type(err).__name__))
+                    zu_schreiben[fremd_slug] = {}
+                    continue
+            fremd = zu_schreiben.get(fremd_slug) or {}
+            if not fremd:
+                continue
+            for kandidat in fremd.get("people") or []:
+                if int(kandidat.get("id", -1)) != int(fremd_id):
+                    continue
+                if verknuepfung.verteilen(kandidat, geteilt):
+                    beruehrt.add(fremd_slug)
+                break
+
+    for fremd_slug in sorted(beruehrt):
+        fremd = zu_schreiben.get(fremd_slug)
+        if not fremd:
+            continue
+        try:
+            pfad = tree_path(fremd_slug)
+            if os.path.exists(pfad):
+                keep_backup(pfad, fremd_slug)
+            tmp = pfad + ".neu"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(fremd, fh, ensure_ascii=False, indent=1)
+            os.replace(tmp, pfad)
+        except OSError as err:
+            berichte.append("Stammbaum „%s“ konnte nicht geschrieben "
+                            "werden (%s)." % (fremd_slug, type(err).__name__))
+
+    return berichte
 
 
 # ----------------------------------------------------- making and unmaking
