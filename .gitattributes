@@ -3,6 +3,7 @@
 
 # Windows starters are double clicked from the Explorer and want CRLF.
 *.cmd text eol=crlf
+*.bat text eol=crlf
 
 # The hooks are run by sh. A CRLF in the shebang line makes them fail with a
 # message that says nothing about line endings, so they are pinned to LF.

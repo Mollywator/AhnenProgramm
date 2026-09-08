@@ -50,12 +50,17 @@ Three steps: read the PDF, build and check the data, write the page.
 
 ## Making the program a double-clickable window
 
+Double click `Stammbaum bauen.bat`, or do the same by hand:
+
 ```sh
 pip install pyinstaller
 python tools/build_exe.py
 ```
 
 That produces `Stammbaum.exe`, which needs no Python on the machine it runs on.
+The exe is built out of the code lying next to it, so in a worktree it is that
+branch's version, and it is written into that worktree rather than the main
+folder.
 
 ## Where your things are kept
 

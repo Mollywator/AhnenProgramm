@@ -1,6 +1,8 @@
 @echo off
 chcp 65001 >nul
-cd /d "%~dp0"
+rem  Eine Ebene hoeher, in den Programmordner: der Editor sucht seine
+rem  Sachen von dort aus, und diese Datei liegt in tools\.
+cd /d "%~dp0.."
 title Stammbaum bearbeiten
 
 python "tools\edit_server.py"

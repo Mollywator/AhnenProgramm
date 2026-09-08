@@ -86,6 +86,13 @@ GONE_FOR = 6                 # no connection for this long: nobody is looking
 KEEPALIVE_EVERY = 20         # a blank line down the wire, for a peer that vanished
 
 WATCHERS = 0                 # how many windows are holding the line open
+# A page still being built counts as somebody looking.  Without this the very
+# first request could outlive the program that was answering it: the clock below
+# starts the moment a request arrives, and building the page for a large tree on
+# a cold disk takes longer than GONE_FOR - so the server shut itself down while
+# it was still rendering, and the window that had just been opened for it landed
+# on ERR_CONNECTION_REFUSED with nothing to say why.
+RENDERING = 0                # how many pages are being built right now
 WATCHER_LOCK = threading.Lock()
 LAST_SEEN = 0.0              # when the last one let go
 SEEN_ANYTHING = False
@@ -422,17 +429,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
         family, so the two can never drift apart.  The editing flag goes into
         the head: the page's own script reads it while setting itself up, so it
         may not arrive afterwards.
+
+        Counted while it runs, and the clock reset when it is done: this is the
+        one thing the program does that can take longer than the patience of the
+        watchdog below, and it must not be shut down halfway through.
         """
+        global RENDERING, LAST_SEEN
+        with WATCHER_LOCK:
+            RENDERING += 1
         try:
-            tree = current_tree()
-        except store.ZuNeu as err:
-            return self.send_blob(zu_neu_seite(err).encode("utf-8"),
-                                  "text/html; charset=utf-8")
-        html = render_page(tree)
-        boot = ("<script>window.STAMMBAUM_EDIT=" +
-                json.dumps(read_state(tree), ensure_ascii=False) + ";</script>")
-        html = html.replace("</head>", boot + "</head>", 1)
-        self.send_blob(html.encode("utf-8"), "text/html; charset=utf-8")
+            try:
+                tree = current_tree()
+            except store.ZuNeu as err:
+                return self.send_blob(zu_neu_seite(err).encode("utf-8"),
+                                      "text/html; charset=utf-8")
+            html = render_page(tree)
+            boot = ("<script>window.STAMMBAUM_EDIT=" +
+                    json.dumps(read_state(tree), ensure_ascii=False) + ";</script>")
+            html = html.replace("</head>", boot + "</head>", 1)
+            self.send_blob(html.encode("utf-8"), "text/html; charset=utf-8")
+        finally:
+            with WATCHER_LOCK:
+                RENDERING -= 1
+                LAST_SEEN = time.time()
 
     def serve_file(self, folder: str, name: str) -> None:
         name = safe_name(urllib.parse.unquote(name))
@@ -1144,7 +1163,8 @@ def watch_window(httpd: socketserver.TCPServer) -> None:
         while True:
             time.sleep(1)
             with WATCHER_LOCK:
-                held, quiet = WATCHERS, time.time() - LAST_SEEN
+                held = WATCHERS or RENDERING
+                quiet = time.time() - LAST_SEEN
             if held:
                 continue
             if quiet > (GONE_FOR if SEEN_ANYTHING else FIRST_CALL_WITHIN):
