@@ -2368,6 +2368,11 @@ function sheetHTML(p){
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:12px">
           <button class="closer" data-close="1" aria-label="Schließen">×</button>
           <button class="btn editonly" data-edit-person="${p.id}">Bearbeiten</button>
+          <!-- Also here, not only one level down in the edit form.  This is
+               where it was looked for: the sheet is where you go to ask "what
+               about this person", and which trees carry her is that kind of
+               question, not a field to be typed in. -->
+          ${IS_EDIT ? linkButtonHTML(p) : ""}
         </div>
       </div>
       <div class="sheet-body">${sections.join("")}</div>
@@ -2813,6 +2818,31 @@ async function runLink(){
   }
 }
 
+/* Make the second tree without leaving the dialog.  `newTree()` reloads the
+   page, which would throw away the half-filled link the user is standing in -
+   so this one adds the tree, puts it into the list in hand, and carries
+   straight on to the preview. */
+async function neuerBaumFuerLink(){
+  if(!linkDraft) return;
+  const p = BY_ID.get(linkDraft.person) || {};
+  const nachname = (p.surname || "").trim();
+  const titel = prompt("Wie soll der neue Stammbaum heißen?",
+                       nachname ? "Familie " + nachname : "Familie ");
+  if(titel === null || !titel.trim()) return;
+  try{
+    const r = await api("/api/new?k=" + encodeURIComponent(EDIT.token), {titel: titel.trim()});
+    // The server switches to the new tree on creation; this dialog belongs to
+    // the one we are standing in, so switch straight back before anything else
+    // reads EDIT.offen.
+    const neu = r.offen;                 // api_new answers with the new slug here
+    await api("/api/open-tree?k=" + encodeURIComponent(EDIT.token), {slug: EDIT.offen});
+    EDIT.baeume = (EDIT.baeume || []).concat([{slug: neu, titel: titel.trim(), personen: 0}]);
+    linkDraft.ziel = neu;
+    refreshLinkPreview();
+    say("„" + titel.trim() + "“ angelegt.");
+  }catch(err){ say("Nicht angelegt – " + err.message, true); }
+}
+
 async function hideLinked(){
   if(!linkDraft) return;
   try{
@@ -2876,14 +2906,19 @@ async function dropLinked(){
 /* The button sits under the × in the form's top right corner: the corner is
    where what happens TO this sheet lives, and linking is exactly that - it is
    not a field of the person, so it does not belong in the body among them. */
+/* Shown whether or not a second tree exists yet.  It used to be hidden until
+   there was one, on the reasoning that there was nowhere to link to - which
+   got it exactly backwards: somebody with one tree is precisely the person who
+   has not discovered the feature, and hiding it means they never will.  The
+   dialog offers to make the second tree instead. */
 function linkButtonHTML(p){
-  const others = ((EDIT && EDIT.baeume) || []).filter(t => t.slug !== EDIT.offen);
-  if(!others.length) return "";        // one tree - nothing to link into
+  if(!EDIT) return "";
   const wo = otherTrees(p);
   return wo.length
     ? `<button type="button" class="btn" data-linkopen="${p.id}"
          title="Steht auch in: ${esc(wo.map(t => treeTitle(t.slug)).join(" · "))}">⧉ Verknüpfung …</button>`
-    : `<button type="button" class="btn" data-linkopen="${p.id}">In anderen Stammbaum verknüpfen</button>`;
+    : `<button type="button" class="btn" data-linkopen="${p.id}"
+         title="Dieselbe Person auch in einem anderen Stammbaum führen">⧉ Verknüpfen …</button>`;
 }
 
 /* The state the link dialog is in while it is open.  It is asked fresh from
@@ -2945,11 +2980,18 @@ function linkDialogHTML(){
     <div class="sheet-body">
       ${bereits}
       <div class="sec"><h3>${wo.length ? "In einen weiteren Stammbaum" : "In welchen Stammbaum"}</h3>
-        <div class="stack">${others.map(t => `<button type="button"
+        ${others.length ? `<div class="stack">${others.map(t => `<button type="button"
             class="treerow${t.slug === d.ziel ? " jetzt" : ""}" data-linkziel="${esc(t.slug)}">
             <span><b>${esc(t.titel)}</b><small>${t.personen}${t.personen === 1 ? " Person" : " Personen"}</small></span>
             <span class="hintline">${t.slug === d.ziel ? "gewählt" : "wählen"}</span>
-          </button>`).join("")}</div>
+          </button>`).join("")}</div>`
+        : `<p class="prose">Es gibt bisher nur diesen einen Stammbaum – und genau da fängt
+             es an: die Familie der angeheirateten Person bekommt einen eigenen, damit sie
+             dort wachsen kann, ohne diesen hier zu füllen.</p>
+           <button type="button" class="btn primary" id="linkNeuerBaum" style="margin-top:12px">
+             Stammbaum dafür anlegen …</button>
+           <p class="hintline" style="margin-top:8px">Danach steht er hier zur Auswahl.
+             ${esc(p.name || "Diese Person")} wandert dann mit dem hinüber, was du unten anhakst.</p>`}
       </div>
 
       <div class="sec"><h3>Wer kommt mit</h3>
@@ -2998,7 +3040,8 @@ function renderLinkDialog(){
 function openLinkDialog(id){
   if(!EDIT) return;
   const others = ((EDIT.baeume) || []).filter(t => t.slug !== EDIT.offen);
-  if(!others.length){ say("Es gibt nur diesen einen Stammbaum.", true); return; }
+  // No second tree is not a reason to refuse - it is the normal starting
+  // point. The dialog says so and offers to make one.
   linkDraft = {person: id, ziel: others.length === 1 ? others[0].slug : null,
                // all four ticked to begin with: the common case is the whole
                // near family, and unticking is easier than hunting for what
@@ -5272,6 +5315,7 @@ if(EDIT){
       jumpToTree(slug, +id);
       return;
     }
+    if(e.target.closest("#linkNeuerBaum")){ neuerBaumFuerLink(); return; }
     if(e.target.closest("#linkGo")){ runLink(); return; }
     if(e.target.closest("#linkHide")){ hideLinked(); return; }
     if(e.target.closest("#linkDrop")){ dropLinked(); return; }
