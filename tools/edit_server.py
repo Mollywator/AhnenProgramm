@@ -267,9 +267,12 @@ def read_state(tree: dict) -> dict:
         "gespeichert": (tree.get("meta") or {}).get("gespeichert"),
         "offen": store.open_slug(),
         "baeume": store.listing(),
-        # The four groups a link may carry, in the order they are offered.
-        # Sent rather than hard-coded in the page so the two cannot drift.
-        "linkGruppen": [{"id": g, "titel": t} for g, t in verknuepfung.GRUPPEN],
+        # The groups a link may carry, in the order they are offered, each
+        # with whether it starts ticked.  Sent rather than hard-coded in the
+        # page so the two cannot drift.
+        "linkGruppen": [{"id": g, "titel": t, "vorgabe": v,
+                         "partner": g in verknuepfung.UEBER_EHEPARTNER}
+                        for g, t, v in verknuepfung.GRUPPEN],
         "programmversion": VERSION,
         "format": schema.FORMAT,
         "repo": REPO_URL,

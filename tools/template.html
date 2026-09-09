@@ -841,7 +841,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.2.1";
+const VERSION = "1.3.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -2995,12 +2995,19 @@ function linkDialogHTML(){
       </div>
 
       <div class="sec"><h3>Wer kommt mit</h3>
-        <div class="stack">${gruppen.map(g => `<label class="dispose-option" style="display:flex;gap:9px;align-items:center;cursor:pointer">
+        <div class="stack">${gruppen.map((g, i) => `${
+          g.partner && !((gruppen[i-1] || {}).partner)
+            ? `<div class="hintline" style="margin-top:8px">Die angeheiratete Seite</div>` : ""
+          }<label class="dispose-option" style="display:flex;gap:9px;align-items:center;cursor:pointer">
           <input type="checkbox" data-linkgruppe="${esc(g.id)}" ${d.gruppen.includes(g.id) ? "checked" : ""}>
           <span>${esc(g.titel)}</span></label>`).join("")}</div>
         <p class="hintline" style="margin-top:10px">Ganze Gruppen, keine einzelnen Personen.
           Wer drei von vier Geschwistern will, nimmt alle vier mit und entfernt drüben eines –
           dabei wird gefragt, aus welchen Stammbäumen.</p>
+        <p class="hintline" style="margin-top:8px">Die untere Hälfte ist die Familie, in die
+          hineingeheiratet wurde – genau die, für die der zweite Stammbaum da ist. Sie ist nicht
+          vorangehakt, weil sie einen Schritt weiter weg steht. Wer eine dieser Gruppen anhakt,
+          nimmt die Ehepartner mit; ohne sie stünden ihre Eltern drüben ohne eine einzige Linie.</p>
       </div>
 
       <div class="sec"><h3>Das wandert hinüber</h3>${vorschau}</div>
@@ -3015,16 +3022,26 @@ function linkDialogHTML(){
   </div></div>`;
 }
 
+// Every tick asks the server again, and the answers do not have to come back
+// in the order they were asked. Four boxes clicked quickly used to end with
+// the reply to the FIRST click on screen: a preview naming fewer people than
+// would actually travel - and the preview is what somebody decides on. So each
+// question gets a number and only the newest one is allowed to write.
+let linkVorschauLauf = 0;
+
 async function refreshLinkPreview(){
   if(!linkDraft || !linkDraft.ziel) return;
+  const lauf = ++linkVorschauLauf;
   linkDraft.reisende = null;
   renderLinkDialog();
   try{
     const r = await api("/api/link-vorschau?k=" + encodeURIComponent(EDIT.token),
       {person: linkDraft.person, ziel: linkDraft.ziel, gruppen: linkDraft.gruppen});
+    if(lauf !== linkVorschauLauf) return;   // eine neuere Frage ist unterwegs
     linkDraft.reisende = r.reisende || [];
     linkDraft.bekannt = r.bekannt || [];
   }catch(err){
+    if(lauf !== linkVorschauLauf) return;
     linkDraft.reisende = [];
     say("Vorschau nicht möglich – " + err.message, true);
   }
@@ -3043,10 +3060,12 @@ function openLinkDialog(id){
   // No second tree is not a reason to refuse - it is the normal starting
   // point. The dialog says so and offers to make one.
   linkDraft = {person: id, ziel: others.length === 1 ? others[0].slug : null,
-               // all four ticked to begin with: the common case is the whole
-               // near family, and unticking is easier than hunting for what
-               // was meant to come along
-               gruppen: ((EDIT.linkGruppen) || []).map(g => g.id),
+               // the near family ticked to begin with: that is the common
+               // case, and unticking is easier than hunting for what was
+               // meant to come along. The married-in side starts unticked -
+               // it is one step further out, and a second family should not
+               // travel because nobody looked.
+               gruppen: ((EDIT.linkGruppen) || []).filter(g => g.vorgabe).map(g => g.id),
                reisende: null, bekannt: []};
   renderLinkDialog();
   if(linkDraft.ziel) refreshLinkPreview();
@@ -5275,15 +5294,26 @@ if(EDIT){
   // Once somebody has answered the question themselves, the recognition stops
   // answering it for them - a suggestion that keeps overriding a choice is not
   // a suggestion.
-  // The four group boxes in the link dialog. Re-asked on every change,
-  // because who travels is the server's answer, not the page's guess.
+  // The group boxes in the link dialog. Re-asked on every change, because
+  // who travels is the server's answer, not the page's guess.
   document.addEventListener("change", e => {
     const box = e.target.closest("[data-linkgruppe]");
     if(!box || !linkDraft) return;
     const id = box.dataset.linkgruppe;
-    linkDraft.gruppen = box.checked
+    const angeheiratet = ((EDIT && EDIT.linkGruppen) || [])
+      .filter(g => g.partner).map(g => g.id);
+    let gewaehlt = box.checked
       ? linkDraft.gruppen.concat([id]).filter((v, i, a) => a.indexOf(v) === i)
       : linkDraft.gruppen.filter(g => g !== id);
+    // The married-in groups hang off the partner: without him his parents
+    // arrive over there with no line to anybody, because a link is only drawn
+    // when both ends travelled. So he comes along - and his box is ticked, so
+    // the dialog says it rather than doing it quietly. Dropping him drops them.
+    if(box.checked && angeheiratet.includes(id) && !gewaehlt.includes("spouses"))
+      gewaehlt = ["spouses"].concat(gewaehlt);
+    if(!box.checked && id === "spouses")
+      gewaehlt = gewaehlt.filter(g => !angeheiratet.includes(g));
+    linkDraft.gruppen = gewaehlt;
     refreshLinkPreview();
   });
 

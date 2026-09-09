@@ -464,16 +464,33 @@ exactly why the two trees can join her to different relatives without
 contradicting each other.  Her parents are in her tree, his are in his, and
 neither file has to know about the other's.
 
-**Four groups travel with her, whole or not at all:** partner, children,
-parents, siblings - offered in that order, because a partner and the children
-are what make her placeable at all on the far side and the rest is context.
+**Groups travel with her, whole or not at all.**  Four are hers: partner,
+children, parents, siblings - offered in that order, because a partner and the
+children are what make her placeable at all on the far side and the rest is
+context.  Three more are the same question asked of her partner instead of her:
+his children, his parents, his siblings - her parents-in-law, her brothers- and
+sisters-in-law, her step-children.  That is the family she marries into, and it
+is the family the second tree exists for; without it her own tree started with
+her alone and every in-law had to be typed a second time by hand.
+
+The married-in three stand in their own block and are **not ticked in advance**.
+They are one step further out, and a second family should not travel because
+nobody looked.  They also hang off a partner, so the partner is not optional:
+ticking one of them ticks `Ehepartner` too, visibly, and unticking him drops
+them again.  Without him his parents would arrive over there with no line to
+anybody, because a link is only ever drawn when both ends travelled.
+`verknuepfung.mit_ehepartner` enforces that on the server as well, so a direct
+API call cannot get around it.
+
 Half a set of siblings is a decision nobody remembers taking; three of four is
 done by taking all four and removing one afterwards, which asks per tree what
 should happen.  The dialog names the people by name before anything is written,
 and it also says who the target tree **already has** under those names - asked
 in both directions, because the second half is the one nobody thinks to check
 until they see somebody twice.  Nothing is matched automatically, for the same
-reason as above.
+reason as above.  That preview is what somebody decides on, so it is not
+allowed to lag: each tick asks the server again, the answers need not come back
+in order, and only the newest one may write.
 
 `link.via` is what keeps the two families apart afterwards.  It is set on
 everybody who travelled *along with* somebody, empty on the person who was

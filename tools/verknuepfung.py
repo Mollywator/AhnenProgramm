@@ -130,45 +130,96 @@ def eintrag_fuer(person: dict, slug: str) -> dict | None:
 
 
 # ------------------------------------------------------------ what travels
-# The four groups offered when a person is linked into another tree, in the
-# order they are offered.  The order is a priority, not an alphabet: a partner
-# and the children are what makes a person placeable at all in the other tree,
+# The groups offered when a person is linked into another tree, in the order
+# they are offered.  The order is a priority, not an alphabet: a partner and
+# the children are what makes a person placeable at all in the other tree,
 # parents and siblings are context.
+#
+# The second block is the same four seen from the partner's side - the family
+# somebody marries into.  It is the case this whole feature exists for: the
+# wife's parents are the husband's parents-in-law, and if he cannot take them
+# along, her tree starts with her alone and every in-law has to be typed twice.
+# They are offered unticked, because they are one step further out and taking
+# them by default would carry a second family across on a click.
 #
 # Whole groups only.  Half a set of siblings is a decision nobody remembers
 # taking, and "three of the four" is done by taking all four and removing one
 # afterwards - which asks, per tree, what should happen.
+#
+# Third field: ticked when the dialog opens.
 GRUPPEN = (
-    ("spouses",  "Ehepartner"),
-    ("children", "Kinder"),
-    ("parents",  "Eltern"),
-    ("siblings", "Geschwister"),
+    ("spouses",         "Ehepartner",                True),
+    ("children",        "Kinder",                    True),
+    ("parents",         "Eltern",                    True),
+    ("siblings",        "Geschwister",               True),
+    ("spouse_children", "Kinder der Ehepartner",     False),
+    ("spouse_parents",  "Schwiegereltern",           False),
+    ("spouse_siblings", "Geschwister der Ehepartner", False),
 )
+
+# The groups that hang off a partner rather than off the person herself.
+UEBER_EHEPARTNER = ("spouse_children", "spouse_parents", "spouse_siblings")
+
+
+def mit_ehepartner(gruppen: list[str]) -> list[str]:
+    """Whoever takes the in-laws takes the partner they hang off.
+
+    Without this, ticking `Schwiegereltern` alone would drop two people into
+    the other tree with no line to anybody: their child - the partner - stayed
+    behind, and a link is only ever drawn when both ends travelled.  So the
+    partner is added, and the dialog ticks the box to say so rather than doing
+    it quietly.
+    """
+    if "spouses" not in gruppen and any(g in UEBER_EHEPARTNER for g in gruppen):
+        return ["spouses"] + list(gruppen)
+    return list(gruppen)
+
+
+def _feld(by_id: dict, pid: int, feld: str) -> list[int]:
+    return [int(x) for x in ((by_id.get(int(pid)) or {}).get(feld) or [])]
+
+
+def _geschwister(by_id: dict, pid: int) -> list[int]:
+    """Siblings are not stored; they are the other children of the parents."""
+    out: list[int] = []
+    for parent in _feld(by_id, pid, "parents"):
+        for kid in _feld(by_id, parent, "children"):
+            if kid != int(pid) and kid not in out:
+                out.append(kid)
+    return out
 
 
 def gruppe_ids(tree: dict, person_id: int, gruppe: str) -> list[int]:
-    """Who is in one of the four groups, for the person in this tree."""
+    """Who is in one of the groups, for the person in this tree."""
     by_id = {int(p["id"]): p for p in tree.get("people") or []}
-    person = by_id.get(int(person_id))
-    if not person:
+    pid = int(person_id)
+    if pid not in by_id:
         return []
     if gruppe == "siblings":
+        return _geschwister(by_id, pid)
+    if gruppe in UEBER_EHEPARTNER:
+        # The same three questions, asked of each partner instead of of her.
+        was = gruppe.split("_", 1)[1]
         out: list[int] = []
-        for parent in person.get("parents") or []:
-            for kid in (by_id.get(int(parent)) or {}).get("children") or []:
-                kid = int(kid)
-                if kid != int(person_id) and kid not in out:
-                    out.append(kid)
+        for partner in _feld(by_id, pid, "spouses"):
+            drin = (_geschwister(by_id, partner) if was == "siblings"
+                    else _feld(by_id, partner, was))
+            for anderer in drin:
+                # She is her partner's partner's ... - and the partners
+                # themselves are the `spouses` group, not this one.
+                if anderer != pid and anderer not in out:
+                    out.append(anderer)
         return out
-    return [int(x) for x in (person.get(gruppe) or [])]
+    return _feld(by_id, pid, gruppe)
 
 
 def vorschau(tree: dict, person_id: int, gruppen: list[str]) -> list[dict]:
     """Who would travel, by name - so the dialog can say it rather than imply it."""
     by_id = {int(p["id"]): p for p in tree.get("people") or []}
+    gruppen = mit_ehepartner(gruppen)
     seen: list[int] = []
     out: list[dict] = []
-    for gruppe, titel in GRUPPEN:
+    for gruppe, titel, _vorgabe in GRUPPEN:
         if gruppe not in gruppen:
             continue
         for pid in gruppe_ids(tree, person_id, gruppe):
@@ -303,7 +354,8 @@ def knuepfen(quelle: dict, quelle_slug: str, person_id: int,
 
     reisende: list[tuple[int, str | None]] = [(int(person_id), None)]
     anker_uid = uid_von(anker) or neue_uid()
-    for gruppe, _titel in GRUPPEN:
+    gruppen = mit_ehepartner(gruppen)
+    for gruppe, _titel, _vorgabe in GRUPPEN:
         if gruppe not in gruppen:
             continue
         for pid in gruppe_ids(quelle, person_id, gruppe):

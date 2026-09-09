@@ -121,6 +121,103 @@ class TestKnuepfen(unittest.TestCase):
         self.assertEqual(sorted(namen), ["Person 1", "Person 2", "Person 3"])
 
 
+def angeheiratete_familie() -> dict:
+    """Her, him, their child - and his whole family behind him.
+
+    Numbered from her point of view, because that is the direction the dialog
+    is used in: she is the one being carried into a second tree, and everything
+    below 10 is the family she marries into.
+    """
+    return {"meta": {}, "people": [
+        person(1, "Sie",              spouses=[2], children=[3]),
+        person(2, "Er",               spouses=[1], children=[3, 4], parents=[5, 6]),
+        person(3, "Gemeinsames Kind", parents=[1, 2]),
+        person(4, "Sein Kind",        parents=[2]),
+        person(5, "Schwiegervater",   spouses=[6], children=[2, 7]),
+        person(6, "Schwiegermutter",  spouses=[5], children=[2, 7]),
+        person(7, "Schwager",         parents=[5, 6]),
+    ], "marriages": []}
+
+
+class TestAngeheirateteSeite(unittest.TestCase):
+    """The family somebody marries into can come along too.
+
+    Without this, linking a wife into her own tree left her there with her
+    husband and nobody of his - and every parent-in-law had to be typed a
+    second time, by hand, into a file where nothing then kept the two copies
+    in step.
+    """
+
+    def setUp(self):
+        self.quelle = angeheiratete_familie()
+
+    def _wer(self, gruppe):
+        namen = {int(p["id"]): p["name"] for p in self.quelle["people"]}
+        return sorted(namen[i] for i in v.gruppe_ids(self.quelle, 1, gruppe))
+
+    def test_schwiegereltern_sind_die_eltern_der_ehepartner(self):
+        self.assertEqual(self._wer("spouse_parents"),
+                         ["Schwiegermutter", "Schwiegervater"])
+
+    def test_geschwister_der_ehepartner(self):
+        # His siblings - and he himself is not one of them.
+        self.assertEqual(self._wer("spouse_siblings"), ["Schwager"])
+
+    def test_kinder_der_ehepartner_schliesst_die_gemeinsamen_ein(self):
+        # They are his children; the group says so and does not pretend that
+        # a shared child belongs to only one of them.
+        self.assertEqual(self._wer("spouse_children"),
+                         ["Gemeinsames Kind", "Sein Kind"])
+
+    def test_sie_selbst_ist_in_keiner_dieser_gruppen(self):
+        for gruppe in v.UEBER_EHEPARTNER:
+            self.assertNotIn("Sie", self._wer(gruppe))
+
+    def test_ohne_ehepartner_gibt_es_keine_angeheiratete_seite(self):
+        allein = {"meta": {}, "people": [person(1, "Sie")], "marriages": []}
+        for gruppe in v.UEBER_EHEPARTNER:
+            self.assertEqual(v.gruppe_ids(allein, 1, gruppe), [])
+
+    def test_die_ehepartner_kommen_zwangslaeufig_mit(self):
+        # Ticked without them, the parents-in-law would arrive over there with
+        # no line to anybody, because their child stayed behind.
+        self.assertEqual(v.mit_ehepartner(["spouse_parents"]),
+                         ["spouses", "spouse_parents"])
+        self.assertEqual(v.mit_ehepartner(["parents"]), ["parents"])
+
+    def test_die_vorschau_nennt_sie_beim_namen(self):
+        namen = [r["name"] for r in v.vorschau(self.quelle, 1, ["spouse_parents"])]
+        self.assertEqual(sorted(namen), ["Er", "Schwiegermutter", "Schwiegervater"])
+
+    def test_sie_wandern_wirklich_hinueber_und_haengen_zusammen(self):
+        ziel = {"meta": {}, "people": [], "marriages": []}
+        v.knuepfen(self.quelle, "baum-a", 1, ziel, "baum-b",
+                   ["spouse_parents", "spouse_children"],
+                   person_lib.blank_person, naechste_id)
+        dort = {p["name"]: p for p in ziel["people"]}
+        self.assertEqual(sorted(dort), ["Er", "Gemeinsames Kind", "Schwiegermutter",
+                                        "Schwiegervater", "Sein Kind", "Sie"])
+        # He hangs off his parents, and his children off him - the numbers are
+        # the second tree's own.
+        self.assertEqual(sorted(dort["Er"]["parents"]),
+                         sorted([int(dort["Schwiegervater"]["id"]),
+                                 int(dort["Schwiegermutter"]["id"])]))
+        self.assertIn(int(dort["Er"]["id"]), dort["Sein Kind"]["parents"])
+        # The married-in side arrived as HER family, so the big views over
+        # there leave them out.
+        self.assertTrue(v.geliehen(dort["Schwiegervater"]))
+        self.assertFalse(v.geliehen(dort["Sie"]))
+
+    def test_niemand_reist_zweimal(self):
+        # The shared child is in two of the ticked groups and is one person.
+        ziel = {"meta": {}, "people": [], "marriages": []}
+        v.knuepfen(self.quelle, "baum-a", 1, ziel, "baum-b",
+                   ["children", "spouse_children"],
+                   person_lib.blank_person, naechste_id)
+        namen = [p["name"] for p in ziel["people"]]
+        self.assertEqual(len(namen), len(set(namen)))
+
+
 class TestNameIstKeinBeweis(unittest.TestCase):
     """Two people are never joined because they are called the same."""
 
