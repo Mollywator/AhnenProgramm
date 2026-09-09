@@ -124,9 +124,17 @@ picture only — 29 ms for eighteen of them.
 - Every other person is then labelled with their relationship *to that centre* —
   computed from the graph, not read from the report. The person sheet also shows
   the path, step by step, from the centre to that person.
-- Each box carries the name, the relationship to the centre, and the dates as
-  `✶ born † died`. Portraits of the dead are shown in black and white; someone
-  counts as dead when the report says so, or once they would be over 110.
+- Each box carries the name, the relationship to the centre, and the dates -
+  `✶ born` on one line and `† died` on the next. Side by side they fitted only
+  while both dates were short, and the one that got cut was always the death,
+  so the box is four lines tall rather than three. Portraits of the dead are
+  shown in black and white; someone counts as dead when the report says so,
+  or once they would be over 110.
+- The name in the box is built from the parts - `Vorname Nachname`, and behind
+  a comma the Geburtsname where there is one. The sheet writes that line along
+  while the name fields are typed in, with a tick box for the birth name that
+  starts ticked; anybody who types the line themselves keeps it, and emptying
+  the field hands it back to the program.
 - Three kinds of people, told apart by fill, border and left edge:
   **blutsverwandt** (solid, coloured edge — blue up the line, red sideways,
   rose down), **angeheiratet** (dashed, warm fill) and **deren Familie**

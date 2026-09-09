@@ -253,12 +253,15 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
   color:var(--ink-3);display:block;margin-top:1px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
+/* Born and died each get a line of their own.  Side by side they fitted only
+   while both dates were short, and the one that got cut was always the second
+   one. */
 .box u{
   text-decoration:none;font-family:var(--sans);font-size:11.5px;letter-spacing:.04em;
-  color:var(--ink-2);display:block;margin-top:2px;white-space:nowrap;
-  overflow:hidden;text-overflow:ellipsis;
+  color:var(--ink-2);display:block;margin-top:2px;
 }
-.box u .died{color:var(--ink-3);margin-left:7px}
+.box u span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.box u .died{color:var(--ink-3);margin-top:1px}
 .box .rel{color:var(--accent);text-transform:uppercase;letter-spacing:.08em}
 .box.centre{
   border-color:var(--accent);border-width:2px;background:var(--card);
@@ -614,6 +617,7 @@ html[data-edit] .editonly.flex{display:flex !important}
 .field.check{flex-direction:row;align-items:center;gap:8px}
 .field.check input{width:auto}
 .field.check span{text-transform:none;letter-spacing:.04em;font-size:12.5px;color:var(--ink-2)}
+.field.check.off{opacity:.5;cursor:default}
 .hintline{font-family:var(--sans);font-size:11.5px;letter-spacing:.05em;color:var(--ink-3);margin:2px 0 0}
 
 /* a date is three little boxes, not a date picker: most of these people are
@@ -859,7 +863,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.4.0";
+const VERSION = "1.5.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -1182,7 +1186,11 @@ function renderList(){
    a couple always stays side by side.  Units are stacked into generations and
    then nudged sideways until parents sit above their children.  That is enough
    structure to draw the whole file at once without the rows crossing. */
-const NW = 208, NH = 74, PARTNER_GAP = 30, UNIT_GAP = 26, ROW_GAP = 158, PAD = 90;
+/* The box is tall enough for four lines: name, relationship, born, died.  The
+   death used to sit behind the birth on one line, where the 208px width cut it
+   off with an ellipsis in exactly the cases it matters most.  ROW_GAP grows by
+   the same amount, so the sibling bars below keep every lane they had. */
+const NW = 208, NH = 88, PARTNER_GAP = 30, UNIT_GAP = 26, ROW_GAP = 172, PAD = 90;
 const LANE_TOP = 16, LANE_STEP = 11, HOP = 5;
 // the generation labels float over the left edge of the stage - keep clear of them
 const RAIL_W = 200;
@@ -1863,7 +1871,7 @@ function datesHTML(p){
   const out = [];
   if(born) out.push(`<span class="born">✶&nbsp;${esc(born)}</span>`);
   if(p.death) out.push(`<span class="died">†&nbsp;${esc(died || "unbekannt")}</span>`);
-  return out.join(" ") || "<span class=\"born\">Lebensdaten unbekannt</span>";
+  return out.join("") || "<span class=\"born\">Lebensdaten unbekannt</span>";
 }
 
 function renderTree(){
@@ -2734,6 +2742,17 @@ function checkField(label, path){
     ${getPath(draft, path) ? "checked" : ""}><span>${esc(label)}</span></label>`;
 }
 
+/* Not a `data-k` box: nothing about it is written to the file.  It decides how
+   the displayed name is built, and the built name is what gets saved - so the
+   next time this form opens, the name itself says where the tick stood. */
+function birthNameToggle(){
+  const geb = (draft.birth_name || "").trim();
+  return `<label class="field check${geb ? "" : " off"}"
+      title="${geb ? "" : "Erst ausfüllbar, wenn oben ein Geburtsname steht"}">
+    <input type="checkbox" id="showBirthName" ${draft._birthNameShown === false ? "" : "checked"}
+      ${geb ? "" : "disabled"}><span>Geburtsname anzeigen</span></label>`;
+}
+
 /* Three boxes, not a date picker: most of these people are known by a year
    alone, and every picker insists on a complete date. */
 function dateField(label, prefix){
@@ -3125,7 +3144,7 @@ function openLinkDialog(id){
 /* ---- the whole form ------------------------------------------------------ */
 function formHTML(){
   const isNew = editingNew;
-  const shown = draft.name || (draft.given + " " + draft.surname).trim();
+  const shown = (draft.name || "").trim() || autoName(draft, draft._birthNameShown !== false);
   const parents = draft.parents || [];
   const spouses = draft.spouses || [];
   const kids = draft._children || [];
@@ -3165,8 +3184,13 @@ function formHTML(){
           ${textField("Titel", "title", {placeholder: "Dr., Pastor …"})}
           ${sexField()}
         </div>
-        <div style="margin-top:12px">${textField("Anzeigename im Baum", "name",
-          {placeholder: "leer lassen: wird aus Vor- und Nachname gebildet"})}</div>
+        <div class="fields two" style="margin-top:12px">
+          ${textField("Anzeigename im Baum", "name",
+            {placeholder: "wird aus den Namen oben gebildet"})}
+          ${birthNameToggle()}
+        </div>
+        <p class="hintline">Der Anzeigename schreibt sich von selbst mit, solange oben getippt wird.
+          Wer ihn überschreibt, behält ihn – leeren stellt das automatische Mitschreiben wieder her.</p>
         <p class="hintline">Ohne Geschlecht schreibt das Programm die Verwandtschaft männlich –
           aus einer Enkelin wird dann „Enkel“.</p>
       </div>
@@ -3264,6 +3288,27 @@ function formHTML(){
   </div></div>`;
 }
 
+/* The display name follows the fields above it while it is still the program's
+   to write.  It stops following the moment somebody types into it themselves,
+   and starts again when they empty it - so there is a way back that does not
+   need a second button. */
+function refreshAutoName(force){
+  const box = document.getElementById("showBirthName");
+  const geb = (draft.birth_name || "").trim();
+  if(box){
+    box.disabled = !geb;
+    const wrap = box.closest(".field");
+    if(wrap) wrap.classList.toggle("off", !geb);
+  }
+  if(!draft._nameManual){
+    draft.name = autoName(draft, draft._birthNameShown !== false) || null;
+    const input = document.querySelector('#editForm [data-k="name"]');
+    if(input && (force || input !== document.activeElement)) input.value = draft.name || "";
+  }
+  const head = document.getElementById("editTitle");
+  if(head) head.textContent = (draft.name || "").trim() || "Ohne Namen";
+}
+
 function renderForm(){
   const scrim = document.getElementById("scrim");
   const keepTop = scrim ? scrim.scrollTop : 0;
@@ -3321,6 +3366,14 @@ function openEditor(id, seed){
      is written to the other side on saving. */
   draft._childrenWere = editingNew ? [] : (draft._children || []).slice();
   draft._spousesWere = editingNew ? [] : (draft.spouses || []).slice();
+  /* Where the display name stands: written by the program, and with or without
+     the birth name - or typed by hand, in which case nothing here touches it.
+     A name the report printed rarely matches either built form, so a person out
+     of the PDF keeps exactly the name the PDF gave them. */
+  const stand = nameState(draft);
+  draft._nameManual = stand.manual;
+  draft._birthNameShown = stand.birth;
+  if(!draft._nameManual) draft.name = autoName(draft, draft._birthNameShown) || null;
   formDirty = editingNew;
   renderForm();
   return true;
@@ -3384,11 +3437,41 @@ function newRelative(role, other){
       : "Neues Geschwister von " + who + " – die Eltern sind schon eingetragen.");
 }
 
+/* ---- the name the tree shows --------------------------------------------- */
+/* Built from the parts rather than typed a second time, so a corrected surname
+   reaches the diagram without anybody having to remember the display line as
+   well.  The birth name goes behind a comma, the way a married woman is written
+   in a German register - unless it says the same as the surname, where it would
+   only be an echo of the word before it. */
+function autoName(p, withBirth){
+  const built = ((p.given || "") + " " + (p.surname || "")).trim();
+  const geb = (p.birth_name || "").trim();
+  if(!withBirth || !geb) return built;
+  if(geb.toLowerCase() === (p.surname || "").trim().toLowerCase()) return built;
+  return built ? built + ", " + geb : geb;
+}
+
+/* Whether the stored name is one the program built, and with the birth name or
+   without.  Nothing is written down for this: a name that matches neither built
+   form was typed by hand and is left alone, and one that matches says by itself
+   which way the tick box stood.  A person with no birth name has nothing to
+   decide, so the box starts ticked - that is the setting a birth name typed in
+   later should meet. */
+function nameState(p){
+  const name = (p.name || "").trim();
+  if(!name || name === autoName(p, true)) return {manual: false, birth: true};
+  if(name === autoName(p, false)) return {manual: false, birth: false};
+  return {manual: true, birth: true};
+}
+
 /* ---- saving -------------------------------------------------------------- */
 function composeName(p){
+  if(!p._nameManual){
+    const built = autoName(p, p._birthNameShown !== false);
+    if(built) return built;
+  }
   if(p.name && p.name.trim()) return p.name.trim();
-  const built = ((p.given || "") + " " + (p.surname || "")).trim();
-  return built || ("Person " + p.id);
+  return "Person " + p.id;
 }
 
 async function takeOver(){
@@ -3405,18 +3488,22 @@ async function takeOver(){
 }
 
 async function saveDraft(){
-  /* The surname a "＋" wrote into the field would otherwise satisfy the check
-     below all by itself, and a person called nothing but their surname would go
-     into the tree unremarked. */
-  if(draft._surnameSeeded && !draft.given && !(draft.name || "").trim()){
+  /* The surname a "＋" wrote into the field is already in the display name by
+     the time this runs - it is built from it - so the check asks whether anybody
+     typed that name themselves.  Otherwise a person called nothing but their
+     surname would go into the tree unremarked. */
+  if(draft._surnameSeeded && !draft.given && !draft._nameManual){
     say("Da steht bisher nur der Nachname – der Vorname fehlt noch.", true);
     return;
   }
-  draft.name = composeName(draft);
-  if(!draft.given && !draft.surname && !draft.name){
+  /* Asked before the name is composed, not after: composing always produces
+     something - "Person 1007" if it has to - and that would answer the question
+     for itself and let a nameless person through. */
+  if(!draft.given && !draft.surname && !(draft.name || "").trim()){
     say("Ohne einen Namen lässt sich die Person nicht ablegen.", true);
     return;
   }
+  draft.name = composeName(draft);
   draft.edited = new Date().toISOString().slice(0, 19).replace("T", " ");
 
   const me = draft.id;
@@ -3493,6 +3580,8 @@ function strip(p){
   delete out._childrenWere;
   delete out._spousesWere;
   delete out._surnameSeeded;
+  delete out._nameManual;
+  delete out._birthNameShown;
   return out;
 }
 
@@ -4320,7 +4409,7 @@ function diagramSVG(bilder){
 
   for(const box of plane.querySelectorAll(".box")){
     const x = parseFloat(box.style.left), y = parseFloat(box.style.top);
-    const w = parseFloat(box.style.width) || 208, h = parseFloat(box.style.height) || 74;
+    const w = parseFloat(box.style.width) || NW, h = parseFloat(box.style.height) || NH;
     const person = BY_ID.get(+box.dataset.person);
     if(!person) continue;
     const centred = box.classList.contains("centre");
@@ -4357,17 +4446,19 @@ function diagramSVG(bilder){
     const tx = px + 45;
     const room = w - (tx - x) - 12;
     const tag = box.querySelector(".lines i");
-    const dates = box.querySelector(".lines u");
+    const dates = [...box.querySelectorAll(".lines u span")];
     const nameSize = fitting(person.name, t.serif, 15.5, room, 10.5);
-    parts.push(`<text x="${tx}" y="${y + 27}" font-family="${xml(t.serif)}" font-size="${nameSize}" ` +
+    parts.push(`<text x="${tx}" y="${y + 25}" font-family="${xml(t.serif)}" font-size="${nameSize}" ` +
       `font-weight="${centred ? 600 : 500}" fill="${centred ? t.accent : married ? t.ink2 : t.ink}">` +
       `${xml(clip(person.name, nameSize + "px " + t.serif, room))}</text>`);
-    if(tag) parts.push(`<text x="${tx}" y="${y + 43}" font-family="${xml(t.sans)}" font-size="11.5" ` +
+    if(tag) parts.push(`<text x="${tx}" y="${y + 41}" font-family="${xml(t.sans)}" font-size="11.5" ` +
       `letter-spacing="0.7" fill="${tag.classList.contains("rel") ? t.accent : t.ink3}">` +
       `${xml(clip(tag.textContent.trim(), tagFont, room))}</text>`);
-    if(dates) parts.push(`<text x="${tx}" y="${y + 58}" font-family="${xml(t.sans)}" font-size="11.5" ` +
-      `letter-spacing="0.5" fill="${t.ink2}">` +
-      `${xml(clip(dates.textContent.replace(/\s+/g, " ").trim(), dateFont, room))}</text>`);
+    // born and died, one under the other, in the order the box has them
+    dates.forEach((line, n) => parts.push(
+      `<text x="${tx}" y="${y + 57 + n * 14}" font-family="${xml(t.sans)}" font-size="11.5" ` +
+      `letter-spacing="0.5" fill="${line.classList.contains("died") ? t.ink3 : t.ink2}">` +
+      `${xml(clip(line.textContent.replace(/\s+/g, " ").trim(), dateFont, room))}</text>`));
   }
 
   const title = (BY_ID.get(centre) || {}).name || "";
@@ -5364,14 +5455,35 @@ if(EDIT){
     if(e.target.id === "startOrdner"){ pruefeOrdner("startOrdner", "startErkannt"); return; }
     if(e.target.id === "importOrdner"){
       pruefeOrdner("importOrdner", "importErkannt", zeigeFunde); return; }
+    // The tick box for the birth name writes nothing to the record - it decides
+    // how the name below it is built, and asking for it is also a request to
+    // have the built name back, whatever was standing in the field.
+    if(e.target.id === "showBirthName" && draft){
+      draft._birthNameShown = e.target.checked;
+      draft._nameManual = false;
+      refreshAutoName();
+      markDirty(true);
+      return;
+    }
     const field = e.target.closest("[data-k]");
     if(!field || !draft || !field.closest("#editForm")) return;
     setPath(draft, field.dataset.k, readInput(field));
     markDirty(true);
-    if(["given", "surname", "name"].includes(field.dataset.k)){
+    if(field.dataset.k === "name"){
+      draft._nameManual = !!(draft.name || "").trim();
       const head = document.getElementById("editTitle");
-      if(head) head.textContent = (draft.name || (draft.given + " " + draft.surname).trim()) || "Ohne Namen";
+      if(head) head.textContent = (draft.name || "").trim() || "Ohne Namen";
+    } else if(["given", "surname", "birth_name"].includes(field.dataset.k)){
+      refreshAutoName();
     }
+  });
+
+  /* An emptied display name is a request for the built one, but refilling it
+     under a caret that is still in the field would fight whoever is typing. So
+     it is refilled once they leave. */
+  document.addEventListener("focusout", e => {
+    const field = e.target.closest('#editForm [data-k="name"]');
+    if(field && draft && !draft._nameManual) refreshAutoName(true);
   });
 
   document.addEventListener("focusin", e => {

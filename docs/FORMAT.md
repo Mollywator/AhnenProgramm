@@ -78,7 +78,7 @@ list where the field is a list — a person is never a short object.
 | Field | Type | What it is |
 |---|---|---|
 | `id` | int | the number. The only thing telling two same-named people apart |
-| `name` | string | the full name as shown |
+| `name` | string | the full name as shown. The editor writes it from `given`, `surname` and, behind a comma, `birth_name`, unless somebody typed a line of their own here |
 | `given`, `surname` | string | the two halves, split by the parser |
 | `birth_name` | string or null | the name before marriage |
 | `call_name` | string or null | the name actually used |
