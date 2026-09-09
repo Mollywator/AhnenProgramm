@@ -18,6 +18,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import edits as overlay_lib
@@ -158,15 +159,53 @@ def encode_photos(people: list[dict], folder: str | None = None) -> dict[str, st
     return out
 
 
-def page_html(data: dict, photo_folder: str | None = None) -> str:
+def photo_urls(people: list[dict], folder: str | None = None) -> dict[str, str]:
+    """Portraits as addresses, keyed by person id - the same shape as above.
+
+    For the editor, which has a server behind it and can therefore just be told
+    where a picture is.  `/foto/<name>` hands out the file in the tree's own
+    folder untouched, so this costs no image work at all and the page shows the
+    picture at the size it was stored in rather than a second, smaller copy of
+    it.  The page then loads them one at a time, as they come into view.
+
+    Only the file handed to the family needs everything inside it, because it
+    has no program behind it - that is what `encode_photos` is for, and it stays
+    exactly as it was.
+
+    The existence check is what keeps `Mit Foto` and the portrait count honest:
+    a name in the record whose file is gone must not turn into a broken image.
+    """
+    folders = [folder] if folder else []
+    for candidate in (store.photo_dir(create=False), PHOTO_DIR):
+        if candidate not in folders:
+            folders.append(candidate)
+
+    out: dict[str, str] = {}
+    for person in people:
+        name = person.get("photo")
+        if not name:
+            continue
+        if any(os.path.exists(os.path.join(f, name)) for f in folders):
+            out[str(person["id"])] = "/foto/" + urllib.parse.quote(name)
+    return out
+
+
+def page_html(data: dict, photo_folder: str | None = None,
+              als_adressen: bool = False) -> str:
     """Fold a tree dict and its portraits into the finished page.
 
     Split out of `main` so that `export.py` can render a page whose data has
     already had the fields nobody may see cut out of it.
+
+    `als_adressen` is the editor's way in: the same page, the same template, the
+    same everything - only the portraits arrive as `/foto/...` rather than baked
+    in.  It is a parameter rather than a second function because the whole point
+    of this one is that the editor and the family's copy cannot drift apart.
     """
     with open(template_path(), encoding="utf-8") as fh:
         template = fh.read()
-    photos = encode_photos(data["people"], photo_folder)
+    photos = (photo_urls(data["people"], photo_folder) if als_adressen
+              else encode_photos(data["people"], photo_folder))
     html = template
     html = html.replace("__TITLE__", data["meta"]["title"])
     html = html.replace("__DATA__", json.dumps(data, ensure_ascii=False, separators=(",", ":")))

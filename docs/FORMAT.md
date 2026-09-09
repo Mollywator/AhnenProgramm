@@ -55,6 +55,21 @@ since 07.09.2026.
 | `edited_people` | int | how many people have been touched by hand |
 | `umgewandelt` | object | present only after a conversion: `am`, `von`, `auf`, `schritte` |
 
+`umgewandelt` is a **record, never a trigger.** It says what was done to this
+file once, the options page shows it, and it stays for as long as the file does.
+What must not happen is a reader treating it as a thing still to be done:
+whether a conversion took place is known by the code that just performed one,
+and by nothing else.
+
+This is written down because it was got wrong. `store.load` used to decide
+whether to write the tree back by reading this field — which it had itself
+written the last time — so it wrote it back on every single open. `save` writes
+the name list, the name list read the tree, and `save` therefore reached itself
+about two hundred rounds deep, ending only when Python ran out of stack. Opening
+a tree of two people took seven seconds, a save took six, and the twenty rolling
+backups were replaced by twenty copies of the same second. See
+`tools/test_umwandlung.py`, which holds the promise open.
+
 ### A person, in `people`
 
 Every person carries every field. Ones that do not apply are `null`, or an empty

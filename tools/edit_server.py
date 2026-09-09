@@ -20,6 +20,7 @@ does the same wherever Python is installed.
 from __future__ import annotations
 
 import base64
+import hashlib
 import http.server
 import json
 import mimetypes
@@ -201,10 +202,12 @@ def pick_folder(start: str = "") -> str:
         ole32.CoUninitialize()
 
 
-# The rendered page, kept until the tree changes.  Building it means base64
-# encoding every portrait, which is a second or so - fine once, silly on every
-# reload while somebody is working.
-PAGE_CACHE: dict = {"stamp": None, "html": None}
+# The rendered page, kept until the tree changes.  One entry per tree rather
+# than one entry in total: every switch of tree is a reload, and holding only
+# the last page meant that going back to the family you were just looking at
+# rebuilt it from scratch.  A page is a few hundred kilobytes and there are a
+# handful of trees, so keeping them all costs less than building one twice.
+PAGE_CACHE: dict[str, tuple] = {}
 
 
 def zu_neu_seite(err: store.ZuNeu) -> str:
@@ -288,23 +291,30 @@ def current_tree() -> dict:
 
 
 def render_page(tree: dict) -> str:
-    """The page with this tree in it, cached until the tree is written again.
+    """The page with this tree in it, kept until that tree is written again.
 
-    The cache is keyed by which tree as well as when: switching between two
-    families must not hand back the one that was drawn a moment ago.
+    Each tree has its own entry, so switching back and forth between two
+    families hands both of them back rather than rebuilding whichever was not
+    the last one drawn.  The stamp still decides: a tree written since is built
+    again, and a family is never shown a page older than its file.
+
+    Portraits are handed over as addresses here - see `build_site.photo_urls`.
+    The page therefore carries no pictures at all, and the browser fetches them
+    as they come into view.
     """
     slug = store.open_slug()
     # The template counts as part of the stamp so that editing the page and
     # reloading shows the change - otherwise the cache would sit on the old one
     # until somebody happened to save a person.
     template = build_site.template_path()
-    stamp = (slug,
-             os.path.getmtime(store.tree_path(slug)) if store.has_tree(slug) else None,
+    stamp = (os.path.getmtime(store.tree_path(slug)) if store.has_tree(slug) else None,
              os.path.getmtime(template) if os.path.exists(template) else None)
-    if PAGE_CACHE["stamp"] == stamp and PAGE_CACHE["html"]:
-        return PAGE_CACHE["html"]
-    html = build_site.page_html(tree, store.photo_dir(slug, create=False))
-    PAGE_CACHE["stamp"], PAGE_CACHE["html"] = stamp, html
+    hatten = PAGE_CACHE.get(slug)
+    if hatten and hatten[0] == stamp:
+        return hatten[1]
+    html = build_site.page_html(tree, store.photo_dir(slug, create=False),
+                                als_adressen=True)
+    PAGE_CACHE[slug] = (stamp, html)
     return html
 
 
@@ -1130,21 +1140,71 @@ class Server(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
+ALT_FENSTER_PREFIX = "stammbaum-fenster-"   # was the throwaway profiles were called
+
+
+def fenster_profil() -> str:
+    """The folder Edge keeps this program's window settings in.
+
+    Kept rather than thrown away, and that is the whole point of it.  Every
+    start used to hand Edge a brand new folder, which meant Edge did its full
+    first-run setup every single time - and left roughly fifty megabytes behind
+    afterwards.  Nobody ever cleaned those up: on the machine this was found on
+    there were fifty-eight of them, about three gigabytes.
+
+    Still its own profile rather than the user's ordinary Edge: what is opened
+    here is a program window, and it has no business in the browser history,
+    the tabs or the sessions of the browser somebody actually browses with.
+
+    One per program folder, keyed by where this copy lives.  Two worktrees are
+    two programs that must not sit in each other's window state - the same
+    reason the starter gives each of them its own data folder.
+
+    This is program state, not family data, so it lives with the program's own
+    settings and not in the folder holding the trees - that one is the user's,
+    may sit on a stick, and should contain nothing but their family.
+    """
+    kennung = hashlib.sha1(os.path.abspath(ROOT).encode("utf-8")).hexdigest()[:10]
+    ordner = os.path.join(store.app_dir(), "Fenster", kennung)
+    os.makedirs(ordner, exist_ok=True)
+    return ordner
+
+
+def alte_profile_wegraeumen() -> None:
+    """Throw away what the old arrangement left in the temp folder.
+
+    Runs in the background and never complains: a folder still in use has files
+    Windows will not let go of, and that is not worth a word to anybody.  Only
+    folders this program made are touched, by their exact name.
+    """
+    def tun() -> None:
+        temp = tempfile.gettempdir()
+        try:
+            namen = os.listdir(temp)
+        except OSError:
+            return
+        for name in namen:
+            if not name.startswith(ALT_FENSTER_PREFIX):
+                continue
+            shutil.rmtree(os.path.join(temp, name), ignore_errors=True)
+
+    threading.Thread(target=tun, daemon=True).start()
+
+
 def open_window(url: str) -> subprocess.Popen | None:
     """Open the page as its own window, without browser chrome around it.
 
     `--app` gives a plain window with its own taskbar entry and no address bar,
-    and the throwaway profile keeps it clear of whatever Edge the user already
+    and a profile of its own keeps it clear of whatever Edge the user already
     has open.  What this process then does is not worth watching: Edge hands the
     window to a browser process of its own and this one returns immediately.
     The page's heartbeat is what says whether anybody is still looking.
     """
     for exe in EDGE_CANDIDATES:
         if os.path.exists(exe):
-            profile = tempfile.mkdtemp(prefix="stammbaum-fenster-")
             return subprocess.Popen([
                 exe, "--app=" + url,
-                "--user-data-dir=" + profile,
+                "--user-data-dir=" + fenster_profil(),
                 "--no-first-run", "--no-default-browser-check",
                 "--window-size=1560,980",
             ])
@@ -1206,6 +1266,9 @@ def main() -> None:
                "\n    ".join(store.pointer_files())))
         return
     print("Datenordner: %s" % ordner)
+    # Was die frueheren Wegwerf-Profile hinterlassen haben. Im Hintergrund,
+    # damit das Fenster darauf nicht wartet.
+    alte_profile_wegraeumen()
 
     # Two switches for working on the program itself: a fixed port so a browser
     # already pointed at it keeps working across restarts, and no window of its

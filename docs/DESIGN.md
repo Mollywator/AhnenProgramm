@@ -97,6 +97,27 @@ The remaining findings are worth a look:
 of its own and needs no server. The window never scrolls as a whole — only the
 register and the diagram do.
 
+**The same page in the editor carries addresses instead of portraits.** It is
+the one difference between the copy handed to the family and the copy the
+program serves, and `build_site.page_html(..., als_adressen=True)` is the whole
+of it. The family's copy must carry every picture inside it because it runs from
+`file://` with nothing behind it; the editor has a server that can simply say
+where a picture is, and `/foto/<name>` hands over the stored file untouched.
+
+What that buys, measured on a tree of 341 people with 96 portraits: building the
+page went from 792 ms to 26 ms, and the page from 2,6 MB to 0,77 MB. The page
+therefore appears before the pictures do, and the browser fetches each portrait
+as it comes into view — `loading="lazy"` was in the template all along and could
+never do anything, because a picture already inside the document has nothing to
+load. It also shows the portrait at the size it was stored in: portraits used to
+be scaled down twice, once in the browser on the way in and again on the way out.
+
+The one thing this costs is that a drawing which **leaves** the window has to be
+given its pictures back. An SVG in the Downloads folder, and the same SVG handed
+to a canvas to become a PNG, resolve nothing, so every portrait would be an empty
+frame. `photosAsData` fetches them at the moment of export, for the people in the
+picture only — 29 ms for eighteen of them.
+
 - The register on the left searches names, places, years and occupations.
 - Clicking a row opens that person's sheet; clicking a box in the diagram makes
   that person the new centre. The ⓘ badge on a box opens the sheet instead.

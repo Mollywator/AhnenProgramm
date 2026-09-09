@@ -46,12 +46,17 @@ def _sortable(name: str) -> str:
     return (name or "").lower()
 
 
-def write(store, slug: str | None = None) -> str:
+def write(store, slug: str | None = None, tree: dict | None = None) -> str:
     """Write the list of one tree, into that tree's own folder.
 
     One file per tree rather than one for all of them: the list belongs to a
     family the way the portraits do, and a folder handed to a relative should
     carry its own index rather than a list naming three other households.
+
+    `tree` is the tree to describe.  `save` passes the one it has just written,
+    and that is not an optimisation: reading it back from here is what let
+    `save` reach itself.  Loading it is kept for a caller who has no tree in
+    hand, and only for that.
     """
     slug = slug or store.open_slug()
     root = store.tree_dir(slug, create=False)
@@ -68,10 +73,11 @@ def write(store, slug: str | None = None) -> str:
     lines.append("Diese Datei wird bei jedem Speichern neu geschrieben.")
     lines.append("=" * 66)
 
-    try:
-        tree = store.load(slug)
-    except Exception:                                       # noqa: BLE001
-        return path
+    if tree is None:
+        try:
+            tree = store.load(slug)
+        except Exception:                                   # noqa: BLE001
+            return path
     meta = tree.get("meta") or {}
     people = tree.get("people") or []
 

@@ -718,6 +718,24 @@ html[data-edit] .editonly.flex{display:flex !important}
 }
 .toast.bad{background:var(--accent);color:#fff}
 
+/* The same corner, saying that something is under way rather than that it is
+   done.  There is no percentage because nothing here knows one: the tree is
+   read, the page is built, the window is replaced - three steps that finish
+   when they finish.  A bar that slides is honest about that; a bar claiming
+   40% would not be. */
+.toast.busy{display:grid;gap:9px;padding-bottom:14px}
+.toast.busy .bar{position:relative;height:3px;border-radius:2px;overflow:hidden;
+  background:rgba(255,255,255,.28)}
+.toast.busy .bar::after{content:"";position:absolute;inset:0;width:40%;
+  border-radius:2px;background:var(--paper);animation:schieben 1.05s ease-in-out infinite}
+@keyframes schieben{
+  0%{transform:translateX(-105%)}
+  100%{transform:translateX(255%)}
+}
+@media (prefers-reduced-motion: reduce){
+  .toast.busy .bar::after{animation:none;width:100%;opacity:.5}
+}
+
 /* Shown when the back end is gone.  Fixed to the top and not dismissable:
    every button in the window is useless until the program is started again,
    and saying so once is kinder than failing at each of them. */
@@ -841,7 +859,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.3.0";
+const VERSION = "1.4.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -2578,6 +2596,39 @@ function showBrokenBar(){
 
 const gone = () => !!document.getElementById("abriss");
 
+/* Says that something is under way, and keeps saying it until the window is
+   replaced or somebody calls it off.
+
+   Why it exists: every change of state in here ends in a reload - switching
+   tree, taking one over, importing, linking, renaming, moving the folder.
+   Between the click and the new page the window simply went on showing the old
+   one, and for a large family that is a second or more of nothing at all.  The
+   person who clicked cannot tell that apart from a click that missed.
+
+   It does not fade out on a timer the way `say` does: it is true until it is
+   not, and the page being swapped out is what ends it. */
+function busy(text){
+  clearTimeout(toastTimer);
+  const old = document.querySelector(".toast");
+  if(old) old.remove();
+  document.body.insertAdjacentHTML("beforeend",
+    `<div class="toast busy" role="status" aria-live="polite">
+       <span>${esc(text || "Einen Moment \u2026")}</span><span class="bar"></span></div>`);
+}
+
+function busyOff(){
+  const t = document.querySelector(".toast.busy");
+  if(t) t.remove();
+}
+
+/* Reload, but say so first.  Everything that swaps the page goes through here,
+   so there is one place that knows a reload is worth announcing - and one place
+   to change if it ever stops being one. */
+function reloadSaying(text){
+  busy(text || "L\u00e4dt neu \u2026");
+  location.reload();
+}
+
 let toastTimer = 0;
 function say(text, bad){
   const old = document.querySelector(".toast");
@@ -2810,7 +2861,7 @@ async function runLink(){
     // The tree in hand changed underneath us; the page is rebuilt from the
     // server rather than patched, so the diagram and the register cannot show
     // a state the file does not have.
-    location.reload();
+    reloadSaying();
   }catch(err){
     if(go) go.disabled = false;
     if(info) info.textContent = "";
@@ -2849,7 +2900,7 @@ async function hideLinked(){
     await api("/api/link-loesen?k=" + encodeURIComponent(EDIT.token),
       {person: linkDraft.person, modus: "verstecken"});
     say("Wird in diesem Stammbaum nicht mehr gezeichnet. In den anderen steht die Person weiter.");
-    location.reload();
+    reloadSaying();
   }catch(err){ say("Nicht versteckt – " + err.message, true); }
 }
 
@@ -2897,7 +2948,7 @@ async function dropLinked(){
     try{
       await api("/api/link-loesen?k=" + encodeURIComponent(EDIT.token),
         {person: linkDraft.person, modus: "loeschen", baeume});
-      location.reload();
+      reloadSaying();
     }catch(err){ say("Nicht entfernt – " + err.message, true); }
   });
 }
@@ -3346,7 +3397,7 @@ async function takeOver(){
   try{
     const out = await api("/api/take-over?k=" + encodeURIComponent(EDIT.token));
     say(out.personen + " Personen übernommen. Die Seite lädt neu.");
-    setTimeout(() => location.reload(), 900);
+    setTimeout(() => reloadSaying(), 900);
   }catch(err){
     say("Nicht übernommen – " + err.message, true);
     if(button){ button.disabled = false; button.textContent = "Übernehmen"; }
@@ -4198,8 +4249,39 @@ const xml = s => String(s == null ? "" : s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 
+/* Portraits for something that leaves the window.
+
+   In the program the pictures are addresses - `/foto/...` - which is what lets
+   the page appear before they do.  A drawing that is downloaded has no program
+   behind it any more: an SVG opened from the Downloads folder, and the same SVG
+   handed to a canvas to become a PNG, both resolve nothing, and every portrait
+   would be an empty frame.  So they are fetched and folded in, once, at the
+   moment of export, and only for the people actually in the picture.
+
+   Anything already carrying its own bytes is passed through untouched, which is
+   what makes this safe in the family's copy of the page as well - there the
+   portraits are baked in and there is nothing to fetch. */
+async function photosAsData(ids){
+  const out = {};
+  await Promise.all([...ids].map(async id => {
+    const src = PHOTOS[id];
+    if(!src) return;
+    if(src.startsWith("data:")){ out[id] = src; return; }
+    try{
+      const blob = await (await fetch(src)).blob();
+      out[id] = await new Promise((ok, no) => {
+        const reader = new FileReader();
+        reader.onload = () => ok(String(reader.result));
+        reader.onerror = no;
+        reader.readAsDataURL(blob);
+      });
+    }catch(_){ /* a missing picture is a blank frame, not a failed export */ }
+  }));
+  return out;
+}
+
 /* ---- the drawing --------------------------------------------------------- */
-function diagramSVG(){
+function diagramSVG(bilder){
   const plane = document.getElementById("plane");
   const width = Math.ceil(parseFloat(plane.style.width) || plane.scrollWidth);
   const height = Math.ceil(parseFloat(plane.style.height) || plane.scrollHeight);
@@ -4259,8 +4341,9 @@ function diagramSVG(){
       parts.push(`<rect x="${x}" y="${y + 1}" width="3" height="${h - 2}" fill="${edge}"/>`);
     }
 
-    // portrait, or the initials where the report had none
-    const shot = PHOTOS[person.id];
+    // portrait, or the initials where the report had none.  `bilder` is what
+    // an export hands in - the same pictures, but carrying their own bytes.
+    const shot = (bilder || PHOTOS)[person.id];
     const px = x + 8, py = y + (h - 46) / 2;
     if(shot){
       parts.push(`<image x="${px}" y="${py}" width="36" height="46" preserveAspectRatio="xMidYMid slice" ` +
@@ -4502,9 +4585,12 @@ function showTrees(){
 
 async function switchTree(slug){
   try{
+    // Vor dem Aufruf, nicht danach: das Umschalten selbst dauert schon, und
+    // genau diese Wartezeit ist die, die ohne Hinweis nach nichts aussieht.
+    busy("Wechselt den Stammbaum \u2026");
     await api("/api/open-tree?k=" + encodeURIComponent(EDIT.token), {slug});
-    location.reload();
-  }catch(err){ say("Nicht gewechselt – " + err.message, true); }
+    reloadSaying("Wechselt den Stammbaum \u2026");
+  }catch(err){ busyOff(); say("Nicht gewechselt – " + err.message, true); }
 }
 
 /* ---- jumping between trees ------------------------------------------------
@@ -4560,7 +4646,7 @@ async function makeUebungsbaum(){
   if(button){ button.disabled = true; button.textContent = "Legt an …"; }
   try{
     await api("/api/uebungsbaum?k=" + encodeURIComponent(EDIT.token));
-    location.reload();
+    reloadSaying();
   }catch(err){
     say("Nicht angelegt – " + err.message, true);
     if(button){ button.disabled = false; button.textContent = "Übungsbaum anlegen"; }
@@ -4572,7 +4658,7 @@ async function newTree(){
   if(title === null) return;
   try{
     await api("/api/new?k=" + encodeURIComponent(EDIT.token), {titel: title});
-    location.reload();
+    reloadSaying();
   }catch(err){ say("Nicht angelegt – " + err.message, true); }
 }
 
@@ -4584,7 +4670,7 @@ async function renameTree(){
     await api("/api/rename-tree?k=" + encodeURIComponent(EDIT.token),
               {slug: EDIT.offen, titel: field.value.trim(),
                autor: author ? author.value.trim() : ""});
-    location.reload();
+    reloadSaying();
   }catch(err){ say("Nicht geändert – " + err.message, true); }
 }
 
@@ -4661,7 +4747,7 @@ async function setDataDir(move, feld){
     const out = await api("/api/set-data-dir?k=" + encodeURIComponent(EDIT.token),
                           {pfad: wanted, verschieben: !!move});
     say(move ? "Umgezogen nach " + out.ordner : "Zeigt jetzt auf " + out.ordner);
-    setTimeout(() => location.reload(), 900);
+    setTimeout(() => reloadSaying(), 900);
   }catch(err){ say("Nicht geändert – " + err.message, true); }
 }
 
@@ -4672,7 +4758,7 @@ async function dropTree(){
               "Datenordner und kann von Hand zurückgeholt werden.")) return;
   try{
     await api("/api/discard-tree?k=" + encodeURIComponent(EDIT.token), {slug: EDIT.offen});
-    location.reload();
+    reloadSaying();
   }catch(err){ say("Nicht entfernt – " + err.message, true); }
 }
 
@@ -4933,7 +5019,7 @@ async function runImportOrdner(){
     </div>`;
     if(foot) foot.innerHTML = `<button class="btn primary" data-close="1"
       id="afterImport">Ansehen</button><span class="grow"></span>`;
-    setTimeout(() => location.reload(), 1400);
+    setTimeout(() => reloadSaying(), 1400);
   }catch(err){
     say("Nicht übernommen – " + err.message, true);
     button.disabled = false;
@@ -4973,7 +5059,7 @@ async function runImport(){
     if(foot) foot.innerHTML = `<button class="btn primary" data-close="1" id="afterImport">Ansehen</button>
       <span class="grow"></span>`;
     importFile = null;
-    setTimeout(() => location.reload(), out.doppelt ? 60000 : 1200);
+    setTimeout(() => reloadSaying(), out.doppelt ? 60000 : 1200);
   }catch(err){
     say("Nicht eingelesen – " + err.message, true);
     button.disabled = false;
@@ -5007,8 +5093,10 @@ async function runExport(){
   try{
     let svg = null, png = null;
     if(wantDiagram && (formats.includes("svg") || formats.includes("png") || formats.includes("pdf"))){
+      if(info) info.textContent = "Holt die Portraits …";
+      const bilder = await photosAsData(stageSet());
       if(info) info.textContent = "Zeichnet das Diagramm …";
-      svg = diagramSVG();
+      svg = diagramSVG(bilder);
       const size = pngPossible();
       if(formats.includes("png") && size.ok){
         if(info) info.textContent = "Rechnet das Bild …";
@@ -5175,7 +5263,7 @@ async function runUmzug(){
   try{
     const out = await api("/api/umziehen?k=" + encodeURIComponent(EDIT.token));
     say(out.verschoben + " Teile umgezogen. Die Seite lädt neu.");
-    setTimeout(() => location.reload(), 900);
+    setTimeout(() => reloadSaying(), 900);
   }catch(err){
     say("Nicht umgezogen – " + err.message, true);
     if(button){ button.disabled = false; button.textContent = "Umziehen"; }
@@ -5362,7 +5450,7 @@ if(EDIT){
     if(e.target.closest("#fromFile")){ document.getElementById("importBtn").click(); return; }
     if(e.target.closest("#doExport")){ runExport(); return; }
     if(e.target.closest("#doImport")){ runImport(); return; }
-    if(e.target.closest("#afterImport")){ location.reload(); return; }
+    if(e.target.closest("#afterImport")){ reloadSaying(); return; }
     if(e.target.closest("#pickImport")){
       pickFile().then(file => {
         if(!file) return;

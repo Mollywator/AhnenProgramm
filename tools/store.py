@@ -625,13 +625,23 @@ def load(slug: str | None = None) -> dict:
     if schema.zu_neu(tree):
         raise ZuNeu(schema.version(tree), schema.FORMAT,
                     (tree.get("meta") or {}).get("title") or slug)
+    # Whether a conversion happened HERE is remembered here, and looked up
+    # nowhere else.  That is the whole of the fix below: the write at the end
+    # used to ask the file instead, the file - which carries the note, and is
+    # meant to - said yes for ever, and so every single load wrote the tree
+    # again.  Through `save`, which wrote the name list, which loaded the tree,
+    # which saw the note again: about two hundred rounds deep per open, ended
+    # only by Python running out of stack.  The note itself is innocent and
+    # stays where it is; what was wrong was reading it as a thing to do.
+    umgewandelt = None
     if schema.veraltet(tree):
         vorher = schema.version(tree)
         keep_format_backup(slug, vorher)
         getan = schema.umwandeln(tree)
-        tree["meta"]["umgewandelt"] = {
+        umgewandelt = {
             "am": datetime.datetime.now().isoformat(timespec="seconds"),
             "von": vorher, "auf": schema.FORMAT, "schritte": getan}
+        tree["meta"]["umgewandelt"] = umgewandelt
 
     tree["people"] = [person_lib.fill_missing(p) for p in tree.get("people") or []]
     tree.setdefault("marriages", [])
@@ -639,7 +649,7 @@ def load(slug: str | None = None) -> dict:
     tree.setdefault("checks", [])
     person_lib.normalise_links(tree["people"])
 
-    if (tree.get("meta") or {}).get("umgewandelt"):
+    if umgewandelt:
         save(tree, slug)
     return tree
 
@@ -704,9 +714,21 @@ def save(tree: dict, slug: str | None = None) -> str:
 
     # A readable index of who is in which tree, refreshed on every save so it
     # is never one edit behind.  Never worth losing a save over, though.
+    #
+    # The tree is handed over rather than looked up again.  It is right here,
+    # and reloading it was how `save` came to call itself: the list read the
+    # tree, the tree said it had just been converted, and reading it saved it.
+    # With the tree passed in there is no path from here back into `save`.
+    #
+    # `RecursionError` is let through on purpose.  Nothing in writing a text
+    # file can legitimately run out of stack; if it does, something calls
+    # itself, and swallowing that quietly is exactly what hid the loop above
+    # through two releases.
     try:
         import namensliste
-        namensliste.write(sys.modules[__name__], slug)
+        namensliste.write(sys.modules[__name__], slug, tree)
+    except RecursionError:
+        raise
     except Exception:                                       # noqa: BLE001
         pass
 
