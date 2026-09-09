@@ -53,7 +53,7 @@ true for ever and is what makes an old backup readable at all.
 from __future__ import annotations
 
 # The shape this program writes.  Raised by one whenever the shape changes.
-FORMAT = 2
+FORMAT = 3
 
 # The oldest shape that can still be brought forward.  Everything below this is
 # refused rather than mangled - see the note about dropping conversions above.
@@ -113,10 +113,39 @@ def _von_1_auf_2(tree: dict) -> None:
         person.setdefault("link", None)
 
 
+def _von_2_auf_3(tree: dict) -> None:
+    """Give every tie a name: what kind of couple, what kind of parent.
+
+    Two maps arrive on each person - `spouse_kind` beside `spouses`, and
+    `parent_kind` beside `parents`.  The lists themselves are untouched, so a
+    reader that knows nothing of the new fields still sees the whole family.
+
+    Every couple already in a tree is set to "marriage".  That is not a guess:
+    the report these trees come from records marriages, the program has called
+    the tie a marriage everywhere since its first day, and the diagram has
+    drawn it with the double line that means exactly that.  Leaving them unsaid
+    would quietly demote every existing marriage to an unnamed partnership on
+    the day the drawing learns to tell the two apart.
+
+    Parents are left unsaid on purpose.  Nothing in the source ever
+    distinguished a step-parent, so writing "blood" everywhere would invent a
+    fact about every family in the file.  Unsaid is the truth here, and the
+    editor offers "Elternteil" until somebody says otherwise.
+    """
+    for person in tree.get("people") or []:
+        person.setdefault("parent_kind", {})
+        kinds = person.setdefault("spouse_kind", {})
+        for spouse in person.get("spouses") or []:
+            kinds.setdefault(str(spouse), "marriage")
+
+
 SCHRITTE: list[dict] = [
     {"von": 1, "was": "Jede Person bekommt das Feld für die Verknüpfung in "
                       "einen anderen Stammbaum (leer)",
      "tun": _von_1_auf_2},
+    {"von": 2, "was": "Jede Verbindung bekommt eine Art: bestehende Paare gelten "
+                      "als Ehe, Elternteile bleiben unbestimmt",
+     "tun": _von_2_auf_3},
 ]
 
 

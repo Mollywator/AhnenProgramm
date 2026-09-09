@@ -158,6 +158,10 @@ def uebungsbaum() -> list[dict]:
         p["sex"] = geschlecht
         p["parents"] = list(eltern)
         p["spouses"] = list(ehe)
+        # Diese zwölf sind verheiratet - so heißen sie ja auch ("Ehefrau").
+        # Ausgeschrieben statt dem Stillschweigen überlassen, damit der
+        # Übungsbaum zeigt, was ein gepflegter Baum enthält.
+        p["spouse_kind"] = {str(x): "marriage" for x in ehe}
         p["birth"] = {"year": jahr, "day": None, "month": None,
                       "place": None, "text": str(jahr)}
         leute.append(p)

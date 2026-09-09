@@ -118,6 +118,7 @@ def blank_person(person_id: int) -> dict:
         "religion": None, "burial": None,
         "residences": [], "contact": None, "freetext": None,
         "documents": [], "edited": None, "link": None,
+        "spouse_kind": {}, "parent_kind": {},
     }
 
 
@@ -141,6 +142,11 @@ def normalise_links(people: list[dict]) -> None:
     cutting a descent link work from either end.  `spouses` is unioned in both
     directions.  Links pointing at somebody who is not in the tree are dropped;
     they would otherwise draw wires to nowhere.
+
+    The two role maps are cleaned up along with the lists they describe.  A
+    role for a tie that no longer exists is dropped rather than kept: it would
+    come back to life, silently and wrongly, the day that same pair is joined
+    again for a different reason.
     """
     by_id = {int(p["id"]): p for p in people}
 
@@ -162,6 +168,55 @@ def normalise_links(people: list[dict]) -> None:
             other = by_id[spouse]["spouses"]
             if int(person["id"]) not in other:
                 other.append(int(person["id"]))
+
+    normalise_roles(people)
+
+
+# What a tie may be called.  Anything else in the file is treated as unsaid -
+# a typo must not turn a marriage into something the program then draws.
+SPOUSE_KINDS = ("marriage", "partner")
+PARENT_KINDS = ("blood", "step")
+
+
+def normalise_roles(people: list[dict]) -> None:
+    """Keep the role maps in step with `spouses` and `parents`, in place.
+
+    Whether a couple is married is a fact about the couple, not about one of
+    them, so `spouse_kind` is written on both records and the two must agree.
+    Where they disagree - only reachable through a hand-edited file or a save
+    that crossed another - the stronger claim wins: somebody wrote "marriage"
+    on purpose, nobody writes "partner" on purpose about a marriage.
+
+    Being a step-parent is not symmetric in the same way; it is recorded on the
+    child, whose record is the one that says how it came by its parents.
+    """
+    by_id = {int(p["id"]): p for p in people}
+
+    for person in people:
+        raw = person.get("spouse_kind") or {}
+        person["spouse_kind"] = {
+            str(k): v for k, v in raw.items()
+            if str(k).lstrip("-").isdigit() and int(k) in person["spouses"]
+            and v in SPOUSE_KINDS}
+        raw = person.get("parent_kind") or {}
+        person["parent_kind"] = {
+            str(k): v for k, v in raw.items()
+            if str(k).lstrip("-").isdigit() and int(k) in person["parents"]
+            and v in PARENT_KINDS}
+
+    for person in people:
+        me = int(person["id"])
+        for spouse in person["spouses"]:
+            other = by_id[spouse]
+            mine = person["spouse_kind"].get(str(spouse))
+            theirs = other["spouse_kind"].get(str(me))
+            if mine == theirs:
+                continue
+            agreed = "marriage" if "marriage" in (mine, theirs) else (mine or theirs)
+            if agreed is None:
+                continue
+            person["spouse_kind"][str(spouse)] = agreed
+            other["spouse_kind"][str(me)] = agreed
 
 
 def apply_edits(tree: dict, edits: dict) -> dict:

@@ -221,6 +221,9 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
 .wires{position:absolute;inset:0;overflow:visible;pointer-events:none}
 .wires path{fill:none;stroke:var(--rule-2);stroke-width:1.5}
 .wires path.marriage{stroke:var(--ink-3);stroke-width:2}
+/* A partnership that is not a marriage: one line, dashed, so it reads as the
+   lesser claim beside the double line that has always meant a marriage. */
+.wires path.marriage.partnered{stroke-dasharray:6 4}
 .wires path.lit{stroke:var(--accent);stroke-width:2}
 
 .box{
@@ -488,6 +491,14 @@ html[data-theme="abend"] .scrim{background:rgba(0,0,0,.7)}
   display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:20px;align-items:start;
   padding:24px 26px 20px;border-bottom:1px solid var(--rule);
 }
+/* The head rides along the way the save bar does.  A person's sheet is long
+   enough to scroll, and the ✕ used to scroll off the top with it - so getting
+   out of a form meant scrolling all the way back up to find the way out. */
+.sheet-head{position:sticky;top:0;z-index:6;background:var(--paper)}
+/* The question about unsaved work stands over the form it is asking about,
+   which is itself a scrim at 200. */
+.scrim.ask{z-index:210;place-items:center}
+.scrim.ask .sheet-head{border-bottom:0;padding-bottom:8px}
 .sheet-head .portrait{width:112px;height:142px;object-fit:cover;border-radius:1px;box-shadow:0 0 0 1px var(--rule-2)}
 .sheet-head .portrait.mono{display:grid;place-items:center;font-family:var(--sans);font-size:30px;color:var(--ink-3);background:var(--paper-2)}
 .sheet h2{margin:0;font-size:30px;font-weight:500;line-height:1.08;letter-spacing:-.01em}
@@ -639,10 +650,31 @@ html[data-edit] .editonly.flex{display:flex !important}
 .addbtn{justify-self:start;font-size:12px}
 
 /* ---- picking a person ---- */
-.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+/* One person per line, so that the dropdown beside each name always sits in
+   the same column and the eye can run straight down the roles. */
+.chips{display:flex;flex-direction:column;gap:6px;align-items:stretch}
 .chipx{
-  display:inline-flex;align-items:center;gap:7px;font-size:14.5px;
+  display:flex;align-items:center;gap:7px;font-size:14.5px;
   background:var(--card);border:1px solid var(--rule-2);border-radius:2px;padding:4px 6px 4px 10px;
+}
+.chipx small{color:var(--ink-3)}
+/* The name takes the room that is left; the role and the ✕ keep to the right
+   edge, where they line up down the list. */
+.chipx .chipname{
+  flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;
+  text-align:left;border-bottom:1px solid transparent;
+}
+.chipx .chipname:hover,.chipx .chipname:focus-visible{color:var(--accent);border-bottom-color:currentColor}
+.chipx .rolepick{
+  margin-left:auto;font:inherit;font-size:13.5px;padding:2px 4px;
+  background:var(--paper);color:var(--ink);border:1px solid var(--rule-2);border-radius:2px;
+}
+.chipx .chipdrop{flex:0 0 auto}
+@media(max-width:560px){
+  .chipx{flex-wrap:wrap}
+  .chipx .rolepick{margin-left:0;width:100%;order:3}
+  .chipx .chipdrop{margin-left:auto}
 }
 .chipx small{font-family:var(--sans);font-size:11px;color:var(--ink-3);letter-spacing:.05em}
 .chipx button{border:0;background:none;color:var(--ink-3);cursor:pointer;font-size:15px;line-height:1;padding:0 3px}
@@ -863,7 +895,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.5.0";
+const VERSION = "1.6.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -962,19 +994,31 @@ function ancestors(id){
   return out;
 }
 
-const MF = (p, m, w) => (p.sex === "w" ? w : m);
+/* The word for a relative, in the sex that person actually has.
+
+   Where the sex is not recorded there used to be no third answer: the male word
+   came out, and a granddaughter nobody had got round to ticking was called
+   "Enkel".  That is the program inventing a fact about somebody, in the one
+   place a family tree is read for facts, and it is not undone by the reader
+   knowing better - the page still says it.
+
+   So `MF` takes a third word for the unknown case.  German gives a real one
+   most of the time - Elternteil, Kind, Enkelkind, Geschwister - and where it
+   does not, both are named: "Onkel/Tante" says exactly what is known, which is
+   that it is one of the two. */
+const MF = (p, m, w, u) => p.sex === "w" ? w : p.sex === "m" ? m : (u || m + "/" + w);
 
 function upWord(p, n){
-  if(n === 1) return MF(p, "Vater", "Mutter");
-  if(n === 2) return MF(p, "Großvater", "Großmutter");
-  if(n === 3) return MF(p, "Urgroßvater", "Urgroßmutter");
-  return (n - 2) + "× Ur-" + MF(p, "Großvater", "Großmutter");
+  if(n === 1) return MF(p, "Vater", "Mutter", "Elternteil");
+  if(n === 2) return MF(p, "Großvater", "Großmutter", "Großelternteil");
+  if(n === 3) return MF(p, "Urgroßvater", "Urgroßmutter", "Urgroßelternteil");
+  return (n - 2) + "× Ur-" + MF(p, "Großvater", "Großmutter", "Großelternteil");
 }
 function downWord(p, n){
-  if(n === 1) return MF(p, "Sohn", "Tochter");
-  if(n === 2) return MF(p, "Enkel", "Enkelin");
-  if(n === 3) return MF(p, "Urenkel", "Urenkelin");
-  return (n - 2) + "× Ur-" + MF(p, "Enkel", "Enkelin");
+  if(n === 1) return MF(p, "Sohn", "Tochter", "Kind");
+  if(n === 2) return MF(p, "Enkel", "Enkelin", "Enkelkind");
+  if(n === 3) return MF(p, "Urenkel", "Urenkelin", "Urenkelkind");
+  return (n - 2) + "× Ur-" + MF(p, "Enkel", "Enkelin", "Enkelkind");
 }
 function auntWord(p, n){
   if(n === 2) return MF(p, "Onkel", "Tante");
@@ -1019,7 +1063,7 @@ function bloodRelation(from, other){
   if(up === 1 && down === 1){
     const shared = a.parents.filter(p => b.parents.includes(p)).length;
     const half = shared < 2 && a.parents.length && b.parents.length ? "Halb" : "";
-    return {label: half + MF(b, "bruder", "schwester").replace(/^./, c => half ? c : c.toUpperCase()), kind: "geschwister", total};
+    return {label: half + MF(b, "bruder", "schwester", "geschwister").replace(/^./, c => half ? c : c.toUpperCase()), kind: "geschwister", total};
   }
   if(up === 1) return {label: nephewWord(b, down), kind: "seitlich", total};
   if(down === 1) return {label: auntWord(b, up), kind: "seitlich", total};
@@ -1049,7 +1093,15 @@ function relation(from, other){
   const a = BY_ID.get(from), b = BY_ID.get(other);
   if(!a || !b) return null;
 
-  if(a.spouses.includes(other)) return {label: MF(b, "Ehemann", "Ehefrau"), kind: "ehe"};
+  /* A couple is a marriage unless somebody said otherwise, which is what the
+     conversion wrote into every tie that already existed.  Read from either
+     record, because the two always agree - see `normaliseRoles`. */
+  if(a.spouses.includes(other)){
+    const said = (a.spouse_kind || {})[other] || (b.spouse_kind || {})[from];
+    return said === "partner"
+      ? {label: MF(b, "Partner", "Partnerin", "Partner"), kind: "ehe"}
+      : {label: MF(b, "Ehemann", "Ehefrau", "Ehepartner"), kind: "ehe"};
+  }
 
   const mySiblings = siblingsOf(from);
   for(const s of mySiblings)
@@ -1060,16 +1112,16 @@ function relation(from, other){
       return {label: MF(b, "Schwager", "Schwägerin"), kind: "angeheiratet", via: s};
   for(const c of a.children)
     if((BY_ID.get(c) || {spouses: []}).spouses.includes(other))
-      return {label: MF(b, "Schwiegersohn", "Schwiegertochter"), kind: "angeheiratet", via: c};
+      return {label: MF(b, "Schwiegersohn", "Schwiegertochter", "Schwiegerkind"), kind: "angeheiratet", via: c};
   for(const s of a.spouses)
     if((BY_ID.get(s) || {parents: []}).parents.includes(other))
-      return {label: MF(b, "Schwiegervater", "Schwiegermutter"), kind: "angeheiratet", via: s};
+      return {label: MF(b, "Schwiegervater", "Schwiegermutter", "Schwiegerelternteil"), kind: "angeheiratet", via: s};
   for(const parent of a.parents)
     if((BY_ID.get(parent) || {spouses: []}).spouses.includes(other) && !a.parents.includes(other))
-      return {label: MF(b, "Stiefvater", "Stiefmutter"), kind: "angeheiratet", via: parent};
+      return {label: MF(b, "Stiefvater", "Stiefmutter", "Stiefelternteil"), kind: "angeheiratet", via: parent};
   for(const s of a.spouses)
     if((BY_ID.get(s) || {children: []}).children.includes(other) && !a.children.includes(other))
-      return {label: MF(b, "Stiefsohn", "Stieftochter"), kind: "angeheiratet", via: s};
+      return {label: MF(b, "Stiefsohn", "Stieftochter", "Stiefkind"), kind: "angeheiratet", via: s};
 
   // other married into the family
   let best = null;
@@ -1077,7 +1129,7 @@ function relation(from, other){
     const r = bloodRelation(from, via);
     if(r && (!best || r.total < best.r.total)) best = {r, via};
   }
-  if(best) return {label: MF(b, "Mann", "Frau") + " von " + firstName(best.via),
+  if(best) return {label: MF(b, "Mann", "Frau", "Ehepartner") + " von " + firstName(best.via),
                    kind: "angeheiratet", via: best.via, note: best.r.label};
 
   // the link runs through the centre's own marriage
@@ -1087,7 +1139,7 @@ function relation(from, other){
                   kind: "angeheiratet", via: mine, note: "über die Ehe mit " + firstName(mine)};
     for(const via of b.spouses){
       const r2 = bloodRelation(mine, via);
-      if(r2) return {label: MF(b, "Mann", "Frau") + " von " + firstName(via),
+      if(r2) return {label: MF(b, "Mann", "Frau", "Ehepartner") + " von " + firstName(via),
                      kind: "angeheiratet", via,
                      note: firstName(via) + " ist " + r2.label + " von " + firstName(mine)};
     }
@@ -1117,7 +1169,7 @@ function relationPath(from, other){
     const person = BY_ID.get(cur);
     const next = person.parents.find(p => ancestors(p).has(m.anc)) ?? person.parents[0];
     if(next === undefined) break;
-    legUp.push({id: next, step: MF(BY_ID.get(next), "Vater", "Mutter")});
+    legUp.push({id: next, step: MF(BY_ID.get(next), "Vater", "Mutter", "Elternteil")});
     cur = next;
   }
   cur = other;
@@ -1125,7 +1177,7 @@ function relationPath(from, other){
     const person = BY_ID.get(cur);
     const next = person.parents.find(p => ancestors(p).has(m.anc)) ?? person.parents[0];
     if(next === undefined) break;
-    legDown.push({id: cur, step: MF(BY_ID.get(cur), "Sohn", "Tochter")});
+    legDown.push({id: cur, step: MF(BY_ID.get(cur), "Sohn", "Tochter", "Kind")});
     cur = next;
   }
   legDown.reverse();
@@ -1829,16 +1881,26 @@ function linkMarkHTML(p){
    add, so the whole thing stays out of the family's copy of the page. */
 let armed = null;
 
+/* Four buttons, four directions, and each one adds the relative that stands in
+   that direction in the drawing: a parent above, a child below, a sibling to
+   the left - and a partner to the right, where the partner is already drawn.
+
+   The right hand button used to be a second sibling button, identical to the
+   left one, so it cost nothing to give away.  It wears "=" rather than "＋"
+   because that is the mark the diagram itself uses between a couple, and it
+   stays "=" whether or not somebody is already entered: a button that means
+   one thing on the first click and another on the second is a button nobody
+   can aim, and a second marriage needs it a second time. */
 function addsHTML(id, p){
   if(!IS_EDIT) return "";
   const first = (p.name || "").split(" ")[0] || "diese Person";
-  const b = (dir, role, title) =>
-    `<button class="add ${dir}" data-relnew="${role}:${id}" title="${esc(title)}">＋</button>`;
+  const b = (dir, role, title, face) =>
+    `<button class="add ${dir}" data-relnew="${role}:${id}" title="${esc(title)}">${face || "＋"}</button>`;
   return `<span class="adds">
     ${b("up", "parent", "Elternteil von " + first + " anlegen")}
     ${b("down", "child", "Kind von " + first + " anlegen")}
     ${b("left", "sibling", "Geschwister von " + first + " anlegen")}
-    ${b("right", "sibling", "Geschwister von " + first + " anlegen")}
+    ${b("right", "spouse", "Partner oder Ehepartner von " + first + " anlegen", "=")}
   </span>`;
 }
 
@@ -1929,14 +1991,30 @@ function renderTree(){
         hullBox.set(clan, b);
       }
     }
+    /* The line between two people standing side by side.
+
+       Two rules meet here.  The double line is the mark a family tree has used
+       for a marriage for as long as they have been drawn, and it stays exactly
+       that - so every couple that was already in the file keeps the line it
+       had.  A partnership that is not a marriage gets one dashed line instead:
+       one line because it is the lesser claim, dashed because the eye picks it
+       out of a page of double lines without having to be told. */
     for(let i = 1; i < unit.ids.length; i++){
-      const x1 = boxX(unit, unit.ids[i - 1]) + dx + NW;
-      const x2 = boxX(unit, unit.ids[i]) + dx;
-      const mixed = groups.kind.get(unit.ids[i - 1]) !== groups.kind.get(unit.ids[i]);
-      const cls = mixed ? "marriage bridge" : "marriage";
-      const kin = ` data-kin="${unit.ids[i - 1]} ${unit.ids[i]}"`;
-      wires.push(`<path class="${cls}"${kin} d="M${x1} ${y + NH / 2 - 2} H${x2}"/>`);
-      wires.push(`<path class="${cls}"${kin} d="M${x1} ${y + NH / 2 + 2} H${x2}"/>`);
+      const a = unit.ids[i - 1], b = unit.ids[i];
+      const x1 = boxX(unit, a) + dx + NW;
+      const x2 = boxX(unit, b) + dx;
+      const mixed = groups.kind.get(a) !== groups.kind.get(b);
+      const said = (BY_ID.get(a).spouse_kind || {})[b] || (BY_ID.get(b).spouse_kind || {})[a];
+      const wed = said !== "partner";
+      const cls = ["marriage", mixed ? "bridge" : "", wed ? "" : "partnered"]
+        .filter(Boolean).join(" ");
+      const kin = ` data-kin="${a} ${b}"`;
+      if(wed){
+        wires.push(`<path class="${cls}"${kin} d="M${x1} ${y + NH / 2 - 2} H${x2}"/>`);
+        wires.push(`<path class="${cls}"${kin} d="M${x1} ${y + NH / 2 + 2} H${x2}"/>`);
+      } else {
+        wires.push(`<path class="${cls}"${kin} d="M${x1} ${y + NH / 2} H${x2}"/>`);
+      }
     }
     /* The sibling bar is collected here and drawn further down, once every bar
        of this generation is known and each can be given its own lane. */
@@ -2414,7 +2492,11 @@ function openSheet(id){
 function closeSheet(){
   // the editor refuses to be closed on top of unsaved work; in the read only
   // file `editGuard` is never defined and this costs nothing
-  if(typeof editGuard === "function" && !editGuard()) return;
+  if(typeof editGuard === "function" && !editGuard(closeSheetNow)) return;
+  closeSheetNow();
+}
+
+function closeSheetNow(){
   const s = document.getElementById("scrim");
   if(s) s.remove();
   document.body.style.overflow = "";
@@ -2520,6 +2602,7 @@ function blankPerson(id){
     bio: null, note_text: null, source_text: null,
     notes: [], sources: [], photo: null,
     events: [], page: null, birth: null, death: null,
+    spouse_kind: {}, parent_kind: {},
   }, EXTRA_BLANK());
 }
 
@@ -2555,6 +2638,64 @@ function normaliseLinks(people){
       const other = byId.get(spouse).spouses;
       if(!other.includes(p.id)) other.push(p.id);
     }
+  normaliseRoles(people, byId);
+}
+
+/* What a tie may be called.  Anything else in the file counts as unsaid - a
+   typo must not become something the diagram then draws. */
+const SPOUSE_KINDS = ["marriage", "partner"];
+const PARENT_KINDS = ["blood", "step"];
+
+/* The mirror of edits.normalise_roles.  Being married is a fact about the pair,
+   so it is written on both records and the two have to agree; where a file
+   disagrees with itself the marriage wins, because that is the value somebody
+   writes on purpose.  Being a step-parent is not symmetric and lives on the
+   child, whose record is the one that says how it came by its parents. */
+function normaliseRoles(people, byId){
+  const keep = (map, list, allowed) => {
+    const out = {};
+    for(const [k, v] of Object.entries(map || {}))
+      if(list.includes(+k) && allowed.includes(v)) out[k] = v;
+    return out;
+  };
+  for(const p of people){
+    p.spouse_kind = keep(p.spouse_kind, p.spouses, SPOUSE_KINDS);
+    p.parent_kind = keep(p.parent_kind, p.parents, PARENT_KINDS);
+  }
+  for(const p of people)
+    for(const spouse of p.spouses){
+      const other = byId.get(spouse);
+      const mine = p.spouse_kind[spouse], theirs = other.spouse_kind[p.id];
+      if(mine === theirs) continue;
+      const agreed = (mine === "marriage" || theirs === "marriage") ? "marriage" : (mine || theirs);
+      if(!agreed) continue;
+      p.spouse_kind[spouse] = agreed;
+      other.spouse_kind[p.id] = agreed;
+    }
+}
+
+/* What this pair is called, asked from either side.
+
+   Unsaid counts as a marriage, and that is not the same as the "=" button's
+   default.  The button writes "partner" because it knows nothing; a tie that
+   says nothing at all is one that predates the question - every couple in a
+   converted file, and every couple the report ever recorded - and the program
+   has called those marriages and drawn them with the double line since its
+   first day.  The drawing, the relationship wording and this dropdown all read
+   it the same way, which is the point: a pair may not be an Ehe in the diagram
+   and a Partnerschaft in the form. */
+function spouseKind(a, b){
+  const p = lookup(a), q = lookup(b);
+  const said = (p && (p.spouse_kind || {})[b]) || (q && (q.spouse_kind || {})[a]);
+  return said === "partner" ? "partner" : "marriage";
+}
+
+/* How this person came by that parent.  "" where nothing has been said, which
+   is not the same as saying they are the birth parent. */
+function parentKind(childId, parentId){
+  const c = lookup(childId);
+  const said = c && (c.parent_kind || {})[parentId];
+  return PARENT_KINDS.includes(said) ? said : "";
 }
 
 /* Rebuild everything derived from the person list.  The two caches hold whole
@@ -2661,7 +2802,19 @@ let sidecar = new Map();
 let formDirty = false;
 let editingNew = false;
 
-function lookup(id){ return sidecar.get(+id) || BY_ID.get(+id); }
+/* The most recent version of somebody, in the order the form thinks about them:
+   the draft is what is being typed into right now, the sidecar is everyone else
+   this form has touched, and the tree is what is in the file.
+
+   The draft has to come first, and did not.  It is a deep copy, not the record
+   in `BY_ID`, so a role just chosen in the form was written to the copy and
+   then read back off the original - and the dropdown snapped back to what the
+   file still said the moment the form redrew. */
+function lookup(id){
+  id = +id;
+  if(draft && draft.id === id) return draft;
+  return sidecar.get(id) || BY_ID.get(id);
+}
 
 function personLabel(id){
   const p = lookup(id);
@@ -2671,12 +2824,82 @@ function personLabel(id){
 
 /* The sheet is closed by the ✕, by Escape, by the backdrop and by every jump
    to another person, so the unsaved-work question is asked here rather than at
-   each of those places. */
-function editGuard(){
+   each of those places.
+
+   It used to be a `confirm`, which can only offer two answers - and the two it
+   offered were "lose the work" and "stay put".  The one thing somebody standing
+   in front of that box actually wants, "save it and carry on", was not among
+   them.  So the question is asked in the page instead, with all three, and the
+   caller hands in what to do once it is answered.
+
+   The return value stays what it was: true means "carry on, nothing is in the
+   way", and the caller does exactly that itself.  The continuation is for the
+   other case only - it is what the dialog runs once the question is answered,
+   in place of the caller that has already given up and returned.  Running it on
+   `true` as well would be running it twice, and for a caller whose continuation
+   is itself, twice for ever. */
+function editGuard(weiter){
   if(!formDirty) return true;
-  const ok = confirm("Die Änderungen an diesem Steckbrief sind noch nicht gespeichert.\n\nTrotzdem schließen?");
-  if(ok){ formDirty = false; draft = null; sidecar.clear(); }
-  return ok;
+  askUnsaved(weiter);
+  return false;
+}
+
+/* Whatever was waiting behind the question.  Held here rather than in a closure
+   so that a second question opening on top of the first cannot leave two of
+   them queued up. */
+let afterGuard = null;
+
+function askUnsaved(weiter){
+  afterGuard = weiter || null;
+  const old = document.getElementById("unsavedAsk");
+  if(old) old.remove();
+  const who = draft ? (draft.name || (draft.given + " " + draft.surname).trim()) : "";
+  document.body.insertAdjacentHTML("beforeend", `<div class="scrim ask" id="unsavedAsk">
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Noch nicht gespeichert"
+         style="width:min(480px,100%)">
+      <div class="sheet-head" style="grid-template-columns:minmax(0,1fr)">
+        <div>
+          <div class="kicker">Achtung</div>
+          <h2>Noch nicht gespeichert</h2>
+          <div class="node-meta" style="font-size:14px;margin-top:6px">${who
+            ? "Die Änderungen an „" + esc(who) + "“ stehen noch nicht in der Datei."
+            : "Die Änderungen an diesem Steckbrief stehen noch nicht in der Datei."}</div>
+        </div>
+      </div>
+      <div class="sheet-foot">
+        <button class="btn primary" id="askSave">Speichern</button>
+        <button class="btn" id="askDrop">Verwerfen</button>
+        <span class="grow"></span>
+        <button class="btn" id="askBack">Zurück</button>
+      </div>
+    </div></div>`);
+  const go = document.getElementById("askSave");
+  if(go) go.focus();
+}
+
+function closeAsk(){
+  const box = document.getElementById("unsavedAsk");
+  if(box) box.remove();
+}
+
+/* The three answers.  "Zurück" is the only one that throws the continuation
+   away - the other two were asked for, and have to arrive where they were
+   going. */
+function askAnswered(wie){
+  const weiter = afterGuard;
+  afterGuard = null;
+  closeAsk();
+  if(wie === "back") return;
+  if(wie === "drop"){
+    formDirty = false;
+    draft = null;
+    sidecar.clear();
+    if(weiter) weiter();
+    return;
+  }
+  // Saving is a round trip, and whatever was waiting must not start until the
+  // file really has it - otherwise a save that failed would carry on anyway.
+  saveDraft().then(ok => { if(ok && weiter) weiter(); });
 }
 
 /* ---- reading and writing a value by its path ----------------------------- */
@@ -2772,11 +2995,78 @@ function sexField(){
 }
 
 /* ---- picking people ------------------------------------------------------ */
+/* What the dropdown beside a parent offers, and what each choice means.
+
+   Two facts hide behind one word.  "Vater" is a parent who is male and not a
+   step-parent; "Stiefmutter" is a parent who is female and is one.  The list
+   therefore writes to two places - `sex` on the parent, `parent_kind` on the
+   child - and that is the whole of why choosing "Vater" here fills the
+   parent's own sex field in, which is what was asked for: the fact is stated
+   once, where it is obvious, rather than twice in two forms.
+
+   Both sexes are always offered, not only the one already recorded.  Offering
+   just the matching half would read tidier and would make the field useless
+   for the case it is most needed in - a parent entered a minute ago with no
+   sex at all, where this dropdown is the shortest way to say which one it is.
+   What the recorded sex does decide is what stands selected. */
+const PARENT_ROLES = [
+  {v: "",         g: "Elternteil",      t: "Elternteil",     kind: "",      sex: null},
+  {v: "m",        g: "Elternteil",      t: "Vater",          kind: "blood", sex: "m"},
+  {v: "w",        g: "Elternteil",      t: "Mutter",         kind: "blood", sex: "w"},
+  {v: "step",     g: "Stiefelternteil", t: "Stiefelternteil", kind: "step", sex: null},
+  {v: "step:m",   g: "Stiefelternteil", t: "Stiefvater",     kind: "step",  sex: "m"},
+  {v: "step:w",   g: "Stiefelternteil", t: "Stiefmutter",    kind: "step",  sex: "w"},
+];
+
+const SPOUSE_ROLES = [
+  {v: "partner",  t: "Partnerschaft"},
+  {v: "marriage", t: "Ehe"},
+];
+
+/* Which entry is standing.  A parent nobody has said anything about is shown by
+   their sex alone - after the conversion that is every parent in the file, and
+   showing a known father as "Elternteil" would look like the program had
+   forgotten him.  Only "step" is ever explicit. */
+function parentRoleValue(childId, parentId){
+  const sex = (lookup(parentId) || {}).sex || "";
+  const step = parentKind(childId, parentId) === "step";
+  return step ? (sex ? "step:" + sex : "step") : sex;
+}
+
+function roleSelect(role, id, value, list){
+  const groups = [];
+  for(const o of list){
+    const last = groups[groups.length - 1];
+    if(o.g && last && last.name === o.g) last.items.push(o);
+    else groups.push({name: o.g || "", items: [o]});
+  }
+  const option = o => `<option value="${o.v}"${o.v === value ? " selected" : ""}>${esc(o.t)}</option>`;
+  const body = groups.map(g => g.name
+    ? `<optgroup label="${esc(g.name)}">${g.items.map(option).join("")}</optgroup>`
+    : g.items.map(option).join("")).join("");
+  return `<select class="rolepick" data-role-of="${role}:${id}"
+    aria-label="Was diese Person ist">${body}</select>`;
+}
+
+/* One row per person rather than a wrapped row of tags: each one now carries a
+   dropdown beside the name, and tags that reflow would put those dropdowns in a
+   different place every time the window is resized. */
 function chipsHTML(role, ids){
   if(!ids.length) return `<p class="hintline">Noch niemand eingetragen.</p>`;
-  return `<div class="chips">${ids.map(id => `<span class="chipx">${esc(personLabel(id))}
-    <small>${esc(lifespan(lookup(id)) || "#" + id)}</small>
-    <button type="button" data-unlink="${role}:${id}" aria-label="Verbindung lösen">×</button></span>`).join("")}</div>`;
+  return `<div class="chips">${ids.map(id => {
+    const pick = role === "parents"
+      ? roleSelect(role, id, parentRoleValue(draft.id, id), PARENT_ROLES)
+      : role === "spouses"
+        ? roleSelect(role, id, spouseKind(draft.id, id), SPOUSE_ROLES)
+        : "";
+    return `<span class="chipx">
+      <button type="button" class="chipname" data-goto="${id}"
+        title="${esc(personLabel(id))} bearbeiten">${esc(personLabel(id))}</button>
+      <small>${esc(lifespan(lookup(id)) || "#" + id)}</small>
+      ${pick}
+      <button type="button" class="chipdrop" data-unlink="${role}:${id}"
+        aria-label="Verbindung lösen">×</button></span>`;
+  }).join("")}</div>`;
 }
 
 function pickerHTML(role, label){
@@ -3191,8 +3481,9 @@ function formHTML(){
         </div>
         <p class="hintline">Der Anzeigename schreibt sich von selbst mit, solange oben getippt wird.
           Wer ihn überschreibt, behält ihn – leeren stellt das automatische Mitschreiben wieder her.</p>
-        <p class="hintline">Ohne Geschlecht schreibt das Programm die Verwandtschaft männlich –
-          aus einer Enkelin wird dann „Enkel“.</p>
+        <p class="hintline">Ohne Geschlecht bleibt die Verwandtschaft offen – aus einer Enkelin
+          wird dann „Enkelkind“ und nicht „Enkel“. Eintragen geht auch von der anderen Seite:
+          wer unter „Eltern“ als Vater oder Mutter geführt wird, ist damit hier eingetragen.</p>
       </div>
 
       <div class="sec"><h3>Geburt</h3>
@@ -3227,9 +3518,14 @@ function formHTML(){
 
       ${linkSection("parents", "Eltern", parents,
         "Vater und Mutter. Alles Weitere – Großeltern, Cousins, Urgroßonkel – rechnet das Programm daraus selbst aus. "
+        + "Rechts neben jedem Namen steht, was diese Person ist: „Elternteil“, bis Vater oder Mutter "
+        + "gewählt wird – das trägt zugleich das Geschlecht bei ihr ein. Stiefvater und Stiefmutter "
+        + "stehen in derselben Liste. "
         + "Steht einer schon da, wird sein Ehepartner darunter mit Namen angeboten – eingetragen wird er erst mit einem Klick.")}
       ${linkSection("spouses", "Ehe und Partnerschaft", spouses,
-        "Wird bei beiden eingetragen, sobald gespeichert wird. Hat das Kind, von dem aus diese "
+        "Wird bei beiden eingetragen, sobald gespeichert wird. Rechts neben jedem Namen steht, was die "
+        + "Verbindung ist: „Partnerschaft“, bis „Ehe“ gewählt wird – der Baum zeichnet eine Ehe mit "
+        + "doppelter, eine Partnerschaft mit gestrichelter Linie. Hat das Kind, von dem aus diese "
         + "Person angelegt wurde, schon einen Elternteil, wird der hier mit Namen angeboten – "
         + "verbunden wird er erst mit einem Klick.")}
       ${linkSection("children", "Kinder", kids,
@@ -3278,9 +3574,12 @@ function formHTML(){
       </div>
     </div>
 
+    <!-- Speichern speichert and does nothing else: the sheet stays open, so a
+         long record can be put in in several goes.  Leaving is the ✕ above, the
+         backdrop, or Escape - and each of those asks first. -->
     <div class="sheet-foot">
       <button class="btn primary" id="saveBtn">Speichern</button>
-      <button class="btn" data-close="1">Verwerfen</button>
+      <button class="btn" data-close="1">Schließen</button>
       <span class="grow"></span>
       <span class="saveinfo" id="saveInfo"></span>
       ${isNew ? "" : `<button class="btn" id="dropPerson">Person entfernen</button>`}
@@ -3349,7 +3648,9 @@ function reserveId(){
 
 function openEditor(id, seed){
   if(!EDIT) return false;
-  if(!editGuard()) return false;
+  // Unsaved work first.  The answer decides whether this call happens at all -
+  // "Zurück" drops it, the other two hand it back once they are done.
+  if(!editGuard(() => openEditor(id, seed))) return false;
   sidecar = new Map();
   if(id == null){
     draft = blankPerson(EDIT.nextId);
@@ -3393,7 +3694,9 @@ function seedRelation(seed){
      and where they do not - a wife under her maiden name, a child given the
      mother's - it is one field to clear.  Guessing further than the box that
      was actually clicked would be guessing about a marriage. */
-  if(other.surname){
+  /* Not for a partner: a wife under her maiden name is the normal case, not the
+     exception, so here the guess would be wrong more often than right. */
+  if(other.surname && seed.role !== "spouse"){
     draft.surname = other.surname;
     draft._surnameSeeded = true;
   }
@@ -3403,6 +3706,14 @@ function seedRelation(seed){
   }
   if(seed.role === "child"){
     draft.parents = [other.id];
+    return;
+  }
+  /* A partnership, not a marriage.  The "=" says two people belong together and
+     nothing more; whether they married is the one thing the button cannot know,
+     so it is left for the dropdown in the form to say. */
+  if(seed.role === "spouse"){
+    draft.spouses = [other.id];
+    draft.spouse_kind = {[other.id]: "partner"};
     return;
   }
   if(seed.role === "sibling"){
@@ -3431,6 +3742,8 @@ function newRelative(role, other){
       + " steht dort schon – unter „Ehe und Partnerschaft“ wird angeboten, die beiden zu verbinden."
     : role === "parent" ? "Neuer Elternteil von " + who + " – Name eintragen und speichern."
     : role === "child" ? "Neues Kind von " + who + " – Name eintragen und speichern."
+    : role === "spouse" ? "Neue Partnerschaft mit " + who
+      + " – unter „Ehe und Partnerschaft“ lässt sich daraus eine Ehe machen."
     : (draft.parents || []).some(p => sidecar.has(p))
       ? "Neues Geschwister von " + who + ". Die Eltern sind unbekannt – beide bekommen "
         + "einen Elternteil „?“, der später einen Namen bekommen kann."
@@ -3494,14 +3807,14 @@ async function saveDraft(){
      surname would go into the tree unremarked. */
   if(draft._surnameSeeded && !draft.given && !draft._nameManual){
     say("Da steht bisher nur der Nachname – der Vorname fehlt noch.", true);
-    return;
+    return false;
   }
   /* Asked before the name is composed, not after: composing always produces
      something - "Person 1007" if it has to - and that would answer the question
      for itself and let a nameless person through. */
   if(!draft.given && !draft.surname && !(draft.name || "").trim()){
     say("Ohne einen Namen lässt sich die Person nicht ablegen.", true);
-    return;
+    return false;
   }
   draft.name = composeName(draft);
   draft.edited = new Date().toISOString().slice(0, 19).replace("T", " ");
@@ -3557,18 +3870,30 @@ async function saveDraft(){
     // showing everybody and waits to be told - it does not appoint a successor.
     if(ME !== null && !BY_ID.has(ME)) ME = null;
     if(centre !== null && !BY_ID.has(centre)) centre = ME;
+    /* The form stays open.  Saving is not leaving: somebody filling a person in
+       saves as they go, the way they would in any editor, and having the sheet
+       vanish under them meant every save was also a navigation they had not
+       asked for - and the way back was to find the box again and click it.
+       Closing is now the ✕, the backdrop and Escape, and nothing else. */
     formDirty = false;
-    draft = null;
+    /* The draft was a new person a moment ago and is not any more; without this
+       a second save would try to add them all over again under a fresh number. */
+    editingNew = false;
+    draft._childrenWere = (draft._children || []).slice();
+    draft._spousesWere = (draft.spouses || []).slice();
+    delete draft._surnameSeeded;
     sidecar.clear();
-    closeSheetHard();
     // A saved relative should appear beside the box it was added from, not
     // send the reader hunting: the armed box holds the view in place.
     holdInPlace(armed !== null ? armed : centre);
     draw();
+    renderForm();
     say("Gespeichert. " + out.count + (out.count === 1 ? " Person" : " Personen") + " im Baum.");
+    return true;
   }catch(err){
     say("Nicht gespeichert – " + err.message, true);
     if(btn){ btn.disabled = false; btn.textContent = "Speichern"; }
+    return false;
   }
 }
 
@@ -3805,6 +4130,18 @@ function linkPerson(role, id){
     draft[role] = draft[role] || [];
     if(!draft[role].includes(id)) draft[role].push(id);
   }
+  /* A partnership until somebody says otherwise.  It is the weaker of the two
+     claims, and the one that can be corrected in the dropdown next to the name
+     without anything having been asserted wrongly in the meantime. */
+  if(role === "spouses" && !(draft.spouse_kind || {})[id]){
+    draft.spouse_kind = draft.spouse_kind || {};
+    draft.spouse_kind[id] = "partner";
+    const other = touch(id);
+    if(other){
+      other.spouse_kind = other.spouse_kind || {};
+      other.spouse_kind[draft.id] = "partner";
+    }
+  }
   markDirty(true);
   closeMenus();
   renderForm();
@@ -3814,8 +4151,76 @@ function unlinkPerson(role, id){
   id = +id;
   if(role === "children") draft._children = (draft._children || []).filter(x => x !== id);
   else draft[role] = (draft[role] || []).filter(x => x !== id);
+  // What the tie was called goes with the tie.  Left behind, it would come back
+  // to life the day the same two are joined again for a different reason.
+  if(role === "spouses" && draft.spouse_kind) delete draft.spouse_kind[id];
+  if(role === "parents" && draft.parent_kind) delete draft.parent_kind[id];
   markDirty(true);
   renderForm();
+}
+
+/* What the dropdown beside a name writes, and where.
+
+   A parent's entry says two things at once and they live in two places: which
+   sex the parent is belongs on the parent's own record, being a step-parent
+   belongs on the child's.  Splitting them here is what makes choosing "Vater"
+   in the child's form fill in the father's sex - the thing that was being typed
+   twice, in two forms, and disagreed with itself often enough to notice.
+
+   Both sides of a marriage are written straight away rather than worked out
+   again when saving: `touch` puts the other person in the sidecar, and the
+   sidecar goes into the same save, so the two records cannot leave here
+   disagreeing about whether they are married. */
+function setRole(role, id, value){
+  if(role === "spouses"){
+    const kind = SPOUSE_KINDS.includes(value) ? value : "partner";
+    draft.spouse_kind = draft.spouse_kind || {};
+    draft.spouse_kind[id] = kind;
+    const other = touch(id);
+    if(other){
+      other.spouse_kind = other.spouse_kind || {};
+      other.spouse_kind[draft.id] = kind;
+    }
+    markDirty(true);
+    renderForm();
+    return;
+  }
+  if(role !== "parents") return;
+
+  const chosen = PARENT_ROLES.find(o => o.v === value) || PARENT_ROLES[0];
+  draft.parent_kind = draft.parent_kind || {};
+  if(chosen.kind) draft.parent_kind[id] = chosen.kind;
+  else delete draft.parent_kind[id];
+
+  /* Only ever written, never cleared.  "Elternteil" means "nobody has said",
+     and taking a recorded sex away because somebody picked the vaguer word
+     would throw away a fact to record the absence of one. */
+  if(chosen.sex){
+    const parent = touch(id);
+    if(parent && parent.sex !== chosen.sex){
+      parent.sex = chosen.sex;
+      say(personLabel(id) + " ist damit als "
+          + (chosen.sex === "m" ? "männlich" : "weiblich") + " eingetragen.");
+    }
+  }
+  markDirty(true);
+  renderForm();
+}
+
+/* Open somebody else's form from inside this one.
+
+   Somebody invented a minute ago in a picker is not in the tree yet - they live
+   in the sidecar and are only written when this draft is saved - so there is
+   nothing to open, and saying so is better than opening an empty form on a
+   person who would then be saved twice. `openEditor` asks about unsaved work
+   itself, which is what makes this safe: nothing is left behind by the hop. */
+function jumpToPerson(id){
+  if(!BY_ID.has(id)){
+    say(personLabel(id) + " ist noch nicht gespeichert – erst speichern, "
+        + "dann lässt sich der Steckbrief öffnen.", true);
+    return;
+  }
+  openEditor(id);
 }
 
 /* A name typed into the picker that belongs to nobody yet: the person is made
@@ -3835,6 +4240,16 @@ function makePerson(role, name){
 
 /* ------------------------------------------------------------------ wiring */
 document.addEventListener("click", e => {
+  /* The unsaved-work question sits on top of everything and answers first: the
+     form is still open underneath it, and a click that fell through to the
+     form would act on work the person is in the middle of deciding about. */
+  if(document.getElementById("unsavedAsk")){
+    if(e.target.closest("#askSave")){ askAnswered("save"); return; }
+    if(e.target.closest("#askDrop")){ askAnswered("drop"); return; }
+    if(e.target.closest("#askBack")){ askAnswered("back"); return; }
+    if(e.target.id === "unsavedAsk"){ askAnswered("back"); return; }
+    return;
+  }
   const mine = e.target.closest("[data-me]");
   if(mine){ setMe(+mine.dataset.me || null); closeSheet(); return; }
   const closer = e.target.closest("[data-close]");
@@ -3863,6 +4278,10 @@ document.addEventListener("click", e => {
   if(!e.target.closest(".box") && !e.target.closest(".sheet")) disarm();
 });
 document.addEventListener("keydown", e => {
+  if(e.key === "Escape" && document.getElementById("unsavedAsk")){
+    askAnswered("back");
+    return;
+  }
   if(e.key === "Escape") closeSheet();
   if(e.key === "/" && document.activeElement.id !== "q"){
     e.preventDefault(); document.getElementById("q").focus();
@@ -4051,7 +4470,7 @@ document.getElementById("helpBtn").addEventListener("click", () => {
           <h3>Bedienung</h3>
           <ul>
             <li><span>Kasten anklicken</span><span>Diese Person wird zum <b>Mittelpunkt</b>. Alle anderen bekommen sofort ihr Verhältnis zu ihr angeschrieben – Vater, Cousine 2. Grades, Schwägerin.</span></li>
-            ${IS_EDIT ? `<li><span>Die vier <b>＋</b> am angeklickten Kasten</span><span>Legen einen Verwandten dieser Person an, in der Richtung, in der er im Baum steht: <b>oben</b> ein Elternteil, <b>unten</b> ein Kind, <b>links und rechts</b> ein Geschwister. Der Steckbrief geht auf, die Verbindung steht schon drin – nur der Name fehlt noch. Bei einem Geschwisterkind unbekannter Eltern wird ein Elternteil <b>?</b> angelegt, der beide zusammenhält und später einen Namen bekommen kann.</span></li>` : ""}
+            ${IS_EDIT ? `<li><span>Die vier Knöpfe am angeklickten Kasten</span><span>Legen einen Verwandten dieser Person an, in der Richtung, in der er im Baum steht: <b>oben ＋</b> ein Elternteil, <b>unten ＋</b> ein Kind, <b>links ＋</b> ein Geschwister, <b>rechts =</b> ein Partner. Der Steckbrief geht auf, die Verbindung steht schon drin – nur der Name fehlt noch. Bei einem Geschwisterkind unbekannter Eltern wird ein Elternteil <b>?</b> angelegt, der beide zusammenhält und später einen Namen bekommen kann. Ein mit <b>=</b> angelegter Partner gilt zunächst als Partnerschaft; im Steckbrief lässt sich daraus eine Ehe machen.</span></li>` : ""}
             <li><span>Knopf <span class="chipdemo">Blatt</span></span><span>Öffnet das Personenblatt: Lebensdaten, Beruf, Wohnorte, Eltern, Ehen, Kinder, Quellen, Originaltext aus dem Bericht – und den Weg vom Mittelpunkt zu dieser Person, Schritt für Schritt.</span></li>
             <li><span>Liste links</span><span>Sucht in Namen, Orten, Jahren und Berufen. Ein Klick öffnet das Personenblatt.</span></li>
             <li><span>Ziehen</span><span>Verschiebt den Baum frei in alle Richtungen.</span></li>
@@ -4668,7 +5087,7 @@ function treesHTML(){
 }
 
 function showTrees(){
-  if(!editGuard()) return;
+  if(!editGuard(showTrees)) return;
   closeSheetHard();
   document.body.insertAdjacentHTML("beforeend", treesHTML());
   document.body.style.overflow = "hidden";
@@ -5425,28 +5844,31 @@ if(EDIT){
   document.getElementById("addBtn").addEventListener("click", () => openEditor(null));
   document.getElementById("mastTitle").addEventListener("click", showTrees);
 
-  document.getElementById("importBtn").addEventListener("click", () => {
-    if(!editGuard()) return;
+  const openImport = () => {
+    if(!editGuard(openImport)) return;
     importFile = null;
     closeSheetHard();
     document.body.insertAdjacentHTML("beforeend", importHTML());
     document.body.style.overflow = "hidden";
     setImportQuelle("datei");
-  });
+  };
+  document.getElementById("importBtn").addEventListener("click", openImport);
 
-  document.getElementById("exportBtn").addEventListener("click", () => {
-    if(!editGuard()) return;
+  const openExport = () => {
+    if(!editGuard(openExport)) return;
     closeSheetHard();
     document.body.insertAdjacentHTML("beforeend", exportHTML());
     document.body.style.overflow = "hidden";
-  });
+  };
+  document.getElementById("exportBtn").addEventListener("click", openExport);
 
-  document.getElementById("optionsBtn").addEventListener("click", () => {
-    if(!editGuard()) return;
+  const openOptions = () => {
+    if(!editGuard(openOptions)) return;
     closeSheetHard();
     document.body.insertAdjacentHTML("beforeend", optionsHTML());
     document.body.style.overflow = "hidden";
-  });
+  };
+  document.getElementById("optionsBtn").addEventListener("click", openOptions);
 
   document.addEventListener("input", e => {
     const pick = e.target.closest(".pickinput");
@@ -5485,6 +5907,17 @@ if(EDIT){
     const field = e.target.closest('#editForm [data-k="name"]');
     if(field && draft && !draft._nameManual) refreshAutoName(true);
   });
+
+  /* The role beside a name.  A `change` rather than an `input`, because a
+     dropdown fires `input` while it is still being scrolled through with the
+     keyboard and half of what is passed would be a choice nobody made. */
+  document.addEventListener("change", e => {
+    const pick = e.target.closest("[data-role-of]");
+    if(!pick || !draft) return;
+    const [role, id] = pick.dataset.roleOf.split(":");
+    setRole(role, +id, pick.value);
+  });
+
 
   document.addEventListener("focusin", e => {
     const pick = e.target.closest(".pickinput");
@@ -5619,6 +6052,15 @@ if(EDIT){
     if(unlink){
       const [role, id] = unlink.dataset.unlink.split(":");
       unlinkPerson(role, id);
+      return;
+    }
+    /* A name in the form is a way through to that person.  Working down a
+       family means hopping between them - enter the father, give him his dates,
+       come back - and until now the only way was to shut the form, find the box
+       in the diagram and open it again. */
+    const goto_ = e.target.closest("[data-goto]");
+    if(goto_){
+      jumpToPerson(+goto_.dataset.goto);
       return;
     }
     const add = e.target.closest("[data-add]");

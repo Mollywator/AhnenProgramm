@@ -52,8 +52,10 @@ import secrets
 
 # Fields that belong to the person and are therefore written to every tree
 # carrying her.  Everything not in here is local to one tree: the id, the
-# links to other people (they are numbers, and numbers differ per tree), the
-# photo and the documents (they are files in that tree's folders).
+# links to other people (they are numbers, and numbers differ per tree), what
+# those links are called (`spouse_kind` and `parent_kind` are keyed by those
+# same local numbers), the photo and the documents (files in that tree's
+# folders).
 GETEILT = (
     "name", "given", "surname", "call_name", "birth_name", "title",
     "sex", "occupation", "religion",

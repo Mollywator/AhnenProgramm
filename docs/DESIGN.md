@@ -602,6 +602,75 @@ that has no box.
 of the page it writes.  That page gets forwarded through a family; a telephone
 number and the file name of a divorce certificate should not travel with it.
 
+### What a connection is called
+
+A tie used to be a number in a list and nothing else.  Two people were in
+`spouses` together, which said they belonged to each other but not whether they
+had married; somebody was in `parents`, which said they were a parent but not
+whether they had borne the child or come along later.  Both distinctions are
+ordinary genealogy, both were being kept in people's heads, and the diagram
+drew every couple with the double line that means a marriage whether it was one
+or not.
+
+Two maps carry it now — `spouse_kind` beside `spouses`, `parent_kind` beside
+`parents` — and the lists themselves did not change, so a reader that knows
+nothing about the new fields still sees every person and every connection.  See
+[`FORMAT.md`](FORMAT.md), version 3.
+
+Each is a dropdown to the right of the name in the form, one line per person so
+that the roles line up down the page:
+
+* **Ehe or Partnerschaft.** Written on both records, because being married is a
+  fact about the pair.  A marriage keeps the double line; a partnership gets a
+  single dashed one.
+* **Elternteil, Vater, Mutter, Stiefvater, Stiefmutter.** Two facts hiding in
+  one word: which sex the parent is, and whether they are a step-parent.  They
+  are stored where each belongs — the sex on the parent, the step on the child —
+  and **that is why choosing "Vater" here fills in the father's own sex field.**
+  It was being typed twice, in two forms, and the two disagreed often enough to
+  notice.
+
+Both sexes are always in the list, not only the one already recorded.  Offering
+half of it reads tidier and makes the field useless for the case it is most
+needed in: a parent entered a minute ago with no sex at all.  What the recorded
+sex decides is what stands selected.
+
+Nothing here ever clears a sex.  "Elternteil" means nobody has said, which is
+not the same as unsaying what was known.
+
+### Where the sex is not known
+
+It used to come out male.  `MF` chose between two words and the fallback was
+the first one, so a granddaughter nobody had got round to ticking was called
+"Enkel" — the program inventing a fact in the one place a family tree is read
+for facts.
+
+There is a third word now.  German has a real one most of the time — Elternteil,
+Kind, Enkelkind, Geschwister — and where it does not, both are named:
+"Onkel/Tante" says exactly what is known, which is that it is one of the two.
+
+### The sheet stays open
+
+`Speichern` saves and does nothing else.  It used to close the form as well, so
+every save was also a navigation nobody asked for, and the way back was to find
+the box in the diagram and click it again.  Filling a person in properly means
+saving several times on the way.
+
+Leaving is the ✕, the backdrop, or Escape — and each of them asks first, in the
+page rather than through `confirm`.  `confirm` can only offer two answers, and
+the two it offered were "lose the work" and "stay put"; the one somebody
+standing in front of it actually wants, **save it and carry on**, was not among
+them.  All three are there now, and the caller hands the dialog what to do once
+it is answered.
+
+The ✕ rides along at the top the way the save bar rides along at the bottom.  A
+person's sheet is long enough to scroll, and getting out of one used to mean
+scrolling all the way back up to find the way out.
+
+A name in the form is a way through to that person: working down a family means
+hopping between them, and the hop goes through the same question, so nothing is
+left behind by it.
+
 ## The exporter
 
 `Exportieren`, next to the manual button, writes the tree out for somebody

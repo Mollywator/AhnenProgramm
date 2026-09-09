@@ -309,12 +309,77 @@ class TestFormat(unittest.TestCase):
     def test_ein_baum_von_vorher_bekommt_das_feld(self):
         tree = {"meta": {}, "people": [{"id": 1, "name": "A"}]}
         getan = schema.umwandeln(tree)
-        self.assertEqual(len(getan), 1)
+        # One step per version between the oldest shape and this one.  Counted
+        # rather than written down: a new conversion must not make this test
+        # fail, it must be covered by it.
+        self.assertEqual(len(getan), schema.FORMAT - 1)
         self.assertIn("link", tree["people"][0])
         self.assertEqual(schema.version(tree), schema.FORMAT)
 
     def test_ein_baum_aus_der_zukunft_wird_nicht_geoeffnet(self):
         self.assertTrue(schema.zu_neu({"meta": {"format": schema.FORMAT + 1}}))
+
+    def test_jede_stufe_hat_ihren_schritt(self):
+        """No gap between the oldest readable shape and this one."""
+        for von in range(schema.AELTESTE, schema.FORMAT):
+            self.assertIsNotNone(schema._schritt_fuer(von),
+                                 "kein Umwandlungsschritt fuer Format %d" % von)
+
+
+class TestArtDerVerbindung(unittest.TestCase):
+    """Format 3: a tie says what it is - a marriage, a partnership, a step-parent."""
+
+    def test_bestehende_paare_gelten_als_ehe(self):
+        """What the report always meant, written down rather than guessed."""
+        tree = {"meta": {"format": 2},
+                "people": [{"id": 1, "name": "A", "spouses": [2], "link": None},
+                           {"id": 2, "name": "B", "spouses": [1], "link": None}]}
+        schema.umwandeln(tree)
+        self.assertEqual(tree["people"][0]["spouse_kind"], {"2": "marriage"})
+        self.assertEqual(tree["people"][1]["spouse_kind"], {"1": "marriage"})
+
+    def test_eltern_bleiben_unbestimmt(self):
+        """Nothing in the source marked a step-parent, so nothing is claimed."""
+        tree = {"meta": {"format": 2},
+                "people": [{"id": 1, "name": "Kind", "parents": [2], "link": None},
+                           {"id": 2, "name": "Elternteil", "children": [1], "link": None}]}
+        schema.umwandeln(tree)
+        self.assertEqual(tree["people"][0]["parent_kind"], {})
+
+    def test_eine_art_ohne_verbindung_faellt_weg(self):
+        """A role for a tie that was cut must not come back with the next one."""
+        people = [person_lib.fill_missing({"id": 1, "name": "A", "spouses": [],
+                                      "spouse_kind": {"2": "marriage"}}),
+                  person_lib.fill_missing({"id": 2, "name": "B", "spouses": []})]
+        person_lib.normalise_links(people)
+        self.assertEqual(people[0]["spouse_kind"], {})
+
+    def test_beide_seiten_sagen_dasselbe(self):
+        """Being married is a fact about the pair, so one side may not disagree."""
+        people = [person_lib.fill_missing({"id": 1, "name": "A", "spouses": [2],
+                                      "spouse_kind": {"2": "partner"}}),
+                  person_lib.fill_missing({"id": 2, "name": "B", "spouses": [1],
+                                      "spouse_kind": {"1": "marriage"}})]
+        person_lib.normalise_links(people)
+        self.assertEqual(people[0]["spouse_kind"]["2"], "marriage")
+        self.assertEqual(people[1]["spouse_kind"]["1"], "marriage")
+
+    def test_erfundene_werte_zaehlen_als_ungesagt(self):
+        """A typo in a hand-edited file must not become something the tree draws."""
+        people = [person_lib.fill_missing({"id": 1, "name": "A", "spouses": [2],
+                                      "spouse_kind": {"2": "Ehe"}}),
+                  person_lib.fill_missing({"id": 2, "name": "B", "spouses": [1]})]
+        person_lib.normalise_links(people)
+        self.assertEqual(people[0]["spouse_kind"], {})
+
+    def test_stiefelternschaft_steht_beim_kind(self):
+        """Not symmetric: the child's record says how it came by its parents."""
+        people = [person_lib.fill_missing({"id": 1, "name": "Kind", "parents": [2],
+                                      "parent_kind": {"2": "step"}}),
+                  person_lib.fill_missing({"id": 2, "name": "Stiefvater", "sex": "m"})]
+        person_lib.normalise_links(people)
+        self.assertEqual(people[0]["parent_kind"], {"2": "step"})
+        self.assertEqual(people[1].get("parent_kind"), {})
 
 
 class TestSpiegeln(unittest.TestCase):

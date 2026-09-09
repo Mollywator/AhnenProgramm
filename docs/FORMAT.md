@@ -170,3 +170,80 @@ A `link` can be ignored entirely. Every tree carries whole people, so a version
 2 file read as if it were version 1 — skipping the unknown field — is complete
 and correct for that family. Only the knowledge that two files describe one
 person is lost.
+
+---
+
+## Version 3
+
+Since 09.09.2026.  Two new maps on a person, and nothing else changed.
+
+Until now a tie had no name.  `spouses` said two people belonged together but
+not whether they were married, and `parents` said who somebody's parents were
+but not whether they had raised them or borne them.  Both distinctions are
+ordinary genealogy and both were being carried in people's heads.
+
+The lists stay exactly as they were.  The names live beside them, keyed by the
+`id` they describe, so a reader that ignores the new fields still sees every
+person and every connection — it only loses what the connection was called.
+
+### `spouse_kind`, on a person
+
+`{}` where nothing is said.  Otherwise a map from the spouse's `id`, **written
+as a string** because JSON keys are strings, to one of:
+
+| Value | What it is |
+|---|---|
+| `marriage` | a marriage |
+| `partner` | a partnership without a marriage |
+
+An `id` with no entry means the tie predates the question — every couple in a
+converted file has one written by the conversion, so this only happens in a file
+edited by hand. It is read as `marriage`, because that is what the program has
+called a couple, and drawn them as, since long before the field existed.
+
+Being married is a fact about the pair, not about one of them, so the entry is
+written on **both** records and the two must agree. Where a hand-edited file
+disagrees with itself, `marriage` wins: somebody writes that on purpose, nobody
+writes `partner` on purpose about a marriage.
+
+### `parent_kind`, on a person
+
+`{}` where nothing is said.  Otherwise a map from the parent's `id`, again as a
+string, to one of:
+
+| Value | What it is |
+|---|---|
+| `blood` | a biological parent |
+| `step` | a step-parent |
+
+Unlike a marriage this is **not** symmetric, and it is recorded on the **child**
+— the record that says how this person came by their parents. The parent's own
+record carries nothing; their `children` list is derived, and so is the role.
+
+An `id` with no entry means nothing has been said, which is different from
+saying `blood`. Most parents in a converted file are in exactly that state, and
+the editor shows them as "Elternteil".
+
+### Whether it is a father or a mother
+
+It is not in these fields. That is the parent's `sex`, which the file has
+carried since version 1, and duplicating it here would be two places to
+disagree. "Vater" is a parent with `sex` `m`; "Stiefmutter" is a parent with
+`sex` `w` and `parent_kind` `step`.
+
+### The conversion out of version 2
+
+Every existing couple is set to `marriage`. The report these trees were built
+from records marriages, the program has named the tie a marriage from its first
+day, and the diagram has drawn it with the double line that means one — so this
+writes down what was already true rather than guessing.
+
+Parents are left unsaid. Nothing in the source ever marked a step-parent, so
+writing `blood` everywhere would invent a fact about every family in the file.
+
+### Why the version number went up for two added fields
+
+The same reason as version 2. An older program opens the file, shows the
+family, and drops both maps on the first save — turning every recorded
+partnership into a marriage and every step-parent into a blood one, silently.
+Refusing to open is the only answer that cannot lose anything.
