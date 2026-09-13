@@ -764,9 +764,13 @@ def spiegeln(tree: dict, slug: str) -> list[str]:
     raised - losing the save in front of somebody to protect a file they are
     not looking at would be the wrong way round.
 
-    Only fields belonging to the person travel (`verknuepfung.GETEILT`); the
-    id, the family links, the photo and the documents stay where they are,
-    because they are facts about a tree rather than about a human being.
+    What travels is what the link says (`link.mit`, see
+    `verknuepfung.FELDGRUPPEN`): by default the whole person - fields,
+    portrait and documents alike - so she is the same in every tree for as
+    long as the link stands, whichever tree she was edited in.  The id and the
+    family links stay where they are; they are facts about a tree, not about a
+    human being.  A file removed here is not removed over there: removing is
+    the one change that must never happen in a folder nobody is looking at.
     """
     berichte: list[str] = []
     zu_schreiben: dict[str, dict] = {}      # slug -> loaded tree
@@ -776,7 +780,9 @@ def spiegeln(tree: dict, slug: str) -> list[str]:
         ziele = verknuepfung.andere_baeume(person, slug)
         if not ziele:
             continue
-        geteilt = verknuepfung.einsammeln(person)
+        auswahl = verknuepfung.bereiche_von(person)
+        geteilt = verknuepfung.einsammeln(person, auswahl)
+        mit = (verknuepfung.link_von(person) or {}).get("mit")
         for ziel in ziele:
             fremd_slug = ziel.get("slug")
             fremd_id = ziel.get("id")
@@ -805,6 +811,19 @@ def spiegeln(tree: dict, slug: str) -> list[str]:
                     continue
                 if verknuepfung.verteilen(kandidat, geteilt):
                     beruehrt.add(fremd_slug)
+                # What is kept in step is itself kept in step: a choice changed
+                # in one tree is the choice in all of them.
+                klink = verknuepfung.link_von(kandidat)
+                if klink is not None and isinstance(mit, list) and klink.get("mit") != mit:
+                    klink["mit"] = list(mit)
+                    beruehrt.add(fremd_slug)
+                if "dateien" in auswahl:
+                    try:
+                        if dateien_abgleichen(person, slug, kandidat, fremd_slug):
+                            beruehrt.add(fremd_slug)
+                    except OSError as err:
+                        berichte.append("Portrait/Unterlagen nach „%s“ nicht "
+                                        "kopiert (%s)." % (fremd_slug, type(err).__name__))
                 break
 
     for fremd_slug in sorted(beruehrt):
@@ -824,6 +843,144 @@ def spiegeln(tree: dict, slug: str) -> list[str]:
                             "werden (%s)." % (fremd_slug, type(err).__name__))
 
     return berichte
+
+
+def _pruefsumme(pfad: str) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(pfad, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _freier_name(ordner: str, name: str) -> str:
+    """Never overwrite: a second `Urkunde.pdf` becomes `Urkunde (2).pdf`."""
+    stem, ext = os.path.splitext(name)
+    kandidat, n = name, 1
+    while os.path.exists(os.path.join(ordner, kandidat)):
+        n += 1
+        kandidat = "%s (%d)%s" % (stem, n, ext)
+    return kandidat
+
+
+EIGEN_PREFIX = re.compile(r"^eigen_\d+_")
+
+
+def dateien_abgleichen(quelle: dict, quelle_slug: str,
+                       ziel: dict, ziel_slug: str) -> bool:
+    """Carry her portrait and her documents into another tree's folders.
+
+    Compared by content, not by name, because the names cannot match: a
+    portrait is called after the person's number, and her number over there is
+    a different one.  So a file whose bytes are already there is left alone -
+    which is what keeps a save that changed nothing from laying a second copy
+    beside the first - and a file that is new or changed is copied under a
+    free name into the other tree's own folder.  Copied, never moved or
+    pointed at: each tree has to stay whole on its own.
+
+    Only ever adds.  A portrait replaced here replaces the one over there; a
+    document removed here stays over there.  Returns whether the record on the
+    far side changed.
+    """
+    geaendert = False
+
+    bild = quelle.get("photo") or ""
+    quell_pfad = os.path.join(photo_dir(quelle_slug), bild) if bild else ""
+    if bild and os.path.isfile(quell_pfad):
+        ziel_ordner = photo_dir(ziel_slug)
+        vorhanden = ziel.get("photo") or ""
+        vorhanden_pfad = os.path.join(ziel_ordner, vorhanden) if vorhanden else ""
+        gleich = bool(vorhanden_pfad and os.path.isfile(vorhanden_pfad)
+                      and _pruefsumme(vorhanden_pfad) == _pruefsumme(quell_pfad))
+        if not gleich:
+            rest = EIGEN_PREFIX.sub("", bild)
+            name = _freier_name(ziel_ordner, "eigen_%d_%s" % (int(ziel["id"]), rest))
+            shutil.copy2(quell_pfad, os.path.join(ziel_ordner, name))
+            ziel["photo"] = name
+            geaendert = True
+
+    eintraege = [e for e in (quelle.get("documents") or []) if (e or {}).get("file")]
+    if eintraege:
+        quell_docs = docs_dir(int(quelle["id"]), quelle_slug)
+        ziel_docs = docs_dir(int(ziel["id"]), ziel_slug)
+        bekannt = set()
+        for da in ziel.get("documents") or []:
+            p = os.path.join(ziel_docs, (da or {}).get("file") or "")
+            if (da or {}).get("file") and os.path.isfile(p):
+                bekannt.add(_pruefsumme(p))
+        for eintrag in eintraege:
+            pfad = os.path.join(quell_docs, eintrag["file"])
+            if not os.path.isfile(pfad):
+                continue
+            summe = _pruefsumme(pfad)
+            if summe in bekannt:
+                continue
+            name = _freier_name(ziel_docs, eintrag["file"])
+            shutil.copy2(pfad, os.path.join(ziel_docs, name))
+            ziel.setdefault("documents", []).append({**eintrag, "file": name})
+            bekannt.add(summe)
+            geaendert = True
+
+    return geaendert
+
+
+# ------------------------------------------- what a new link starts with
+def _stufen_ids() -> list[str]:
+    return [sid for sid, _t, _v in verknuepfung.STUFEN]
+
+
+def stufen() -> list[dict]:
+    """The levels, as changed in the settings - or as they ship.
+
+    "Alles" cannot be thinned out: it is the name for the same person one to
+    one, and a level that means less is what the other levels are for.
+    """
+    eigene = settings().get("stufen") or {}
+    out = []
+    for sid, titel, vorgabe in verknuepfung.STUFEN:
+        auswahl = eigene.get(sid) if sid != "alles" else None
+        out.append({"id": sid, "titel": titel,
+                    "bereiche": verknuepfung.bereiche(
+                        auswahl if isinstance(auswahl, list) else vorgabe)})
+    return out
+
+
+def mitnehmen_global() -> str:
+    wert = settings().get("mitnehmen")
+    return wert if wert in _stufen_ids() else "alles"
+
+
+def mitnehmen_baum(tree: dict) -> str:
+    wert = (tree.get("meta") or {}).get("mitnehmen")
+    return wert if wert in _stufen_ids() else "global"
+
+
+def vorbelegung(tree: dict) -> list[str]:
+    """What a new link from this tree starts with, before anybody changes it."""
+    stufe = mitnehmen_baum(tree)
+    if stufe == "global":
+        stufe = mitnehmen_global()
+    for s in stufen():
+        if s["id"] == stufe:
+            return s["bereiche"]
+    return list(verknuepfung.BEREICHE)
+
+
+def mitnehmen_setzen(slug: str | None = None, baum: str | None = None,
+                     global_: str | None = None, eigene: dict | None = None) -> None:
+    """Write the defaults: the levels, the global level, this tree's level."""
+    ids = _stufen_ids()
+    if eigene is not None:
+        remember(stufen={sid: verknuepfung.bereiche(eigene.get(sid))
+                         for sid in ids
+                         if sid != "alles" and isinstance(eigene.get(sid), list)})
+    if global_ is not None and global_ in ids:
+        remember(mitnehmen=global_)
+    if baum is not None and (baum == "global" or baum in ids):
+        tree = load(slug)
+        tree.setdefault("meta", {})["mitnehmen"] = baum
+        save(tree, slug)
 
 
 # ----------------------------------------------------- making and unmaking

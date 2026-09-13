@@ -254,6 +254,33 @@ def zu_neu_seite(err: store.ZuNeu) -> str:
 </main></body></html>""" % (titel, err.hat, err.kann, REPO_URL, REPO_URL)
 
 
+# What each shared field is called on screen, for the groups a link can keep
+# in step.  Only the words live here; which field is in which group is
+# `verknuepfung.FELDGRUPPEN`.
+FELD_TITEL = {
+    "name": "Name", "given": "Vorname", "surname": "Nachname",
+    "call_name": "Rufname", "birth_name": "Geburtsname", "title": "Titel",
+    "sex": "Geschlecht", "birth": "Geburt", "death": "Tod",
+    "burial": "Beerdigung", "occupation": "Beruf", "religion": "Religion",
+    "residences": "Wohnorte", "events": "Ereignisse", "extra": "Zusatz",
+    "notes": "Notizen", "freetext": "Freitext", "contact": "Kontakt",
+}
+
+
+def feldgruppen() -> list[dict]:
+    return [{"id": g, "titel": t,
+             "felder": ([FELD_TITEL.get(f, f) for f in felder]
+                        if felder else ["Portrait", "Unterlagen"])}
+            for g, t, felder in verknuepfung.FELDGRUPPEN]
+
+
+def _auswahl(wert):
+    """A selection from the page, or None when the page said nothing."""
+    if not isinstance(wert, list):
+        return None
+    return verknuepfung.bereiche([b for b in wert if isinstance(b, str)])
+
+
 def read_state(tree: dict) -> dict:
     """What the page needs to know about the program behind it."""
     return {
@@ -271,11 +298,20 @@ def read_state(tree: dict) -> dict:
         "offen": store.open_slug(),
         "baeume": store.listing(),
         # The groups a link may carry, in the order they are offered, each
-        # with whether it starts ticked.  Sent rather than hard-coded in the
-        # page so the two cannot drift.
+        # with whether it starts ticked and what it hangs off.  Sent rather
+        # than hard-coded in the page so the two cannot drift - the page ticks
+        # the carrier's box, the file decides who actually travels, and they
+        # have to agree on which group carries which.
         "linkGruppen": [{"id": g, "titel": t, "vorgabe": v,
-                         "partner": g in verknuepfung.UEBER_EHEPARTNER}
+                         "partner": g in verknuepfung.UEBER_EHEPARTNER,
+                         "braucht": verknuepfung.HAENGT_AN.get(g)}
                         for g, t, v in verknuepfung.GRUPPEN],
+        # What a link keeps in step, and what a new one starts with.
+        "feldgruppen": feldgruppen(),
+        "stufen": store.stufen(),
+        "mitnehmenGlobal": store.mitnehmen_global(),
+        "mitnehmenBaum": store.mitnehmen_baum(tree),
+        "vorbelegung": store.vorbelegung(tree),
         "programmversion": VERSION,
         "format": schema.FORMAT,
         "repo": REPO_URL,
@@ -510,6 +546,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.api_link()
             if route == "/api/link-loesen":
                 return self.api_link_loesen()
+            if route == "/api/link-mit":
+                return self.api_link_mit()
+            if route == "/api/mitnehmen":
+                return self.api_mitnehmen()
             if route == "/api/rename-tree":
                 return self.api_rename_tree()
             if route == "/api/discard-tree":
@@ -755,17 +795,78 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except store.ZuNeu as err:
             return self.fail(409, str(err))
 
+        mit = _auswahl(payload.get("mit"))
+        mit_angehoerige = _auswahl(payload.get("mitAngehoerige"))
+        if mit is None:
+            mit = store.vorbelegung(tree)
+
         ergebnis = verknuepfung.knuepfen(
             tree, hier_slug, person_id, ziel, ziel_slug, gruppen,
-            person_lib.blank_person, store.next_id)
+            person_lib.blank_person, store.next_id,
+            mit=mit, mit_angehoerige=mit_angehoerige)
+
+        # Portraits and documents, for everybody whose link carries them.
+        # Before the target is saved, so it is written with its new file names.
+        hinweise: list[str] = []
+        hier_nach_id = {int(p["id"]): p for p in tree.get("people") or []}
+        dort_nach_id = {int(p["id"]): p for p in ziel.get("people") or []}
+        for paar in ergebnis.pop("paare", []):
+            if not paar.get("dateien"):
+                continue
+            try:
+                store.dateien_abgleichen(hier_nach_id[paar["hier"]], hier_slug,
+                                         dort_nach_id[paar["dort"]], ziel_slug)
+            except OSError as err:
+                hinweise.append("Portrait/Unterlagen von Nr. %s nicht kopiert (%s)."
+                                % (paar["hier"], type(err).__name__))
 
         # The target first: it is the one gaining people, and a half-written
         # link is better pointing at somebody who exists than at nobody.
         store.save(ziel, ziel_slug)
+        hinweise += store.LETZTE_SPIEGEL_BERICHTE
         store.save(tree, hier_slug)
+        hinweise += store.LETZTE_SPIEGEL_BERICHTE
         self.send_json({"ok": True, **ergebnis,
                         "ziel": ziel_slug,
+                        "hinweise": hinweise})
+
+    def api_link_mit(self) -> None:
+        """Change what an existing link keeps in step.
+
+        Written on the person here and saved; the save carries the new choice
+        into every other tree that holds her, and - if it now includes them -
+        her portrait and documents too.
+        """
+        payload = self.body()
+        person_id = int(payload.get("person"))
+        mit = _auswahl(payload.get("mit"))
+        if mit is None:
+            return self.fail(400, "Keine Auswahl.")
+        tree = current_tree()
+        person = next((p for p in tree["people"] if int(p["id"]) == person_id), None)
+        if not person or not verknuepfung.link_von(person):
+            return self.fail(404, "Diese Person ist nicht verknüpft.")
+        link = dict(verknuepfung.link_von(person))
+        link["mit"] = mit
+        person["link"] = link
+        store.save(tree)
+        self.send_json({"ok": True, "mit": mit,
                         "hinweise": list(store.LETZTE_SPIEGEL_BERICHTE)})
+
+    def api_mitnehmen(self) -> None:
+        """The defaults a new link starts with: per tree, global, the levels."""
+        payload = self.body()
+        eigene = payload.get("stufen")
+        store.mitnehmen_setzen(
+            slug=store.open_slug(),
+            baum=payload.get("baum") if isinstance(payload.get("baum"), str) else None,
+            global_=payload.get("global") if isinstance(payload.get("global"), str) else None,
+            eigene=eigene if isinstance(eigene, dict) else None)
+        tree = current_tree()
+        self.send_json({"ok": True, "stufen": store.stufen(),
+                        "mitnehmenGlobal": store.mitnehmen_global(),
+                        "mitnehmenBaum": store.mitnehmen_baum(tree),
+                        "vorbelegung": store.vorbelegung(tree)})
 
     def api_link_loesen(self) -> None:
         """Take a linked person out of one tree - hidden, or gone.

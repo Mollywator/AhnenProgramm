@@ -24,6 +24,9 @@ in every tree that carries her, and the rest is local:
                                     person rather than in her own right. This
                                     is what keeps a married-in family out of
                                     the big views - see `geliehen()`.
+      "mit":    ["identitaet", ...] what is kept in step, see `FELDGRUPPEN`.
+                                    Shared: both trees read the same answer.
+                                    Missing means everything, files included.
       "hidden": false,              hidden in THIS tree only. Local, never
                                     synchronised: a father-in-law somebody no
                                     longer wants to see is their business, not
@@ -74,6 +77,62 @@ LISTEN = ("residences", "events", "notes")
 EINZELN = ("name", "given", "surname", "call_name", "birth_name", "title",
            "sex", "occupation", "religion", "birth", "death", "burial",
            "freetext", "extra", "contact")
+
+
+# ------------------------------------------------------- what is kept in step
+# The shared fields in groups a person can recognise.  The question somebody
+# linking a wife into her own family asks is not "how much" - nobody can say
+# which half of a record is half - but "which kind": her name, her dates, her
+# life, what is private, and her pictures.
+#
+# `dateien` has no fields: a portrait and a scan are files in a tree's own
+# folders, and `store.dateien_abgleichen()` is what carries them across.
+FELDGRUPPEN = (
+    ("identitaet", "Identität", ("name", "given", "surname", "call_name",
+                                 "birth_name", "title", "sex")),
+    ("eckdaten",   "Eckdaten",  ("birth", "death", "burial")),
+    ("leben",      "Leben",     ("occupation", "religion", "residences",
+                                 "events", "extra")),
+    ("privates",   "Privates",  ("notes", "freetext", "contact")),
+    ("dateien",    "Portrait & Unterlagen", ()),
+)
+BEREICHE = tuple(g for g, _t, _f in FELDGRUPPEN)
+
+# Without a name the copy over there is nobody, so this one is always kept.
+IMMER = "identitaet"
+
+# The levels offered before anybody has changed them.  "Alles" is the default
+# everywhere and means the same person, one to one - fields and files alike.
+STUFEN = (
+    ("alles",    "Alles",        BEREICHE),
+    ("standard", "Nur Standard", ("identitaet", "eckdaten", "leben")),
+    ("name",     "Nur Name",     ("identitaet",)),
+)
+
+
+def bereiche(auswahl) -> list[str]:
+    """A clean selection: known groups only, in their order, the name always."""
+    gewollt = set(auswahl or ())
+    gewollt.add(IMMER)
+    return [b for b in BEREICHE if b in gewollt]
+
+
+def bereiche_von(person: dict) -> list[str]:
+    """What this link keeps in step.
+
+    A link written before there was a choice has no `mit` and keeps everything,
+    files included: it was made to be the same person in both trees, and
+    holding back what the program could not carry at the time would be a limit
+    nobody ever chose.
+    """
+    link = link_von(person)
+    mit = (link or {}).get("mit")
+    return bereiche(mit) if isinstance(mit, list) else list(BEREICHE)
+
+
+def felder_fuer(auswahl) -> tuple[str, ...]:
+    gewollt = set(bereiche(auswahl))
+    return tuple(f for g, _t, felder in FELDGRUPPEN if g in gewollt for f in felder)
 
 
 def neue_uid() -> str:
@@ -148,6 +207,9 @@ def eintrag_fuer(person: dict, slug: str) -> dict | None:
 # taking, and "three of the four" is done by taking all four and removing one
 # afterwards - which asks, per tree, what should happen.
 #
+# Not every group can travel on its own: see `HAENGT_AN` below.  A group whose
+# carrier stayed behind arrives on the far side with no line to anybody.
+#
 # Third field: ticked when the dialog opens.
 GRUPPEN = (
     ("spouses",         "Ehepartner",                True),
@@ -162,19 +224,61 @@ GRUPPEN = (
 # The groups that hang off a partner rather than off the person herself.
 UEBER_EHEPARTNER = ("spouse_children", "spouse_parents", "spouse_siblings")
 
+# What each group is reached through.  A link is only ever drawn when BOTH ends
+# travelled, so a group whose carrier stayed behind arrives on the far side
+# with no line to anybody - people standing loose in a tree, to be joined up by
+# hand afterwards.
+#
+# Two carriers, and the second one is easy to miss: the married-in groups are
+# reached through the partner, and SIBLINGS ARE REACHED THROUGH THE PARENTS.
+# Siblings are not a field.  Nowhere in a record does it say who somebody's
+# sister is - she is the other child of the same parents, and that is the only
+# thing that makes her a sister.  Take her without them and she is not a
+# sibling over there, she is a stranger.
+HAENGT_AN = {
+    "siblings":        "parents",
+    "spouse_children": "spouses",
+    "spouse_parents":  "spouses",
+    "spouse_siblings": "spouse_parents",     # and through it, "spouses"
+}
+
+
+def traeger(gruppe: str) -> list[str]:
+    """The chain a group hangs off, nearest first - `[]` if it stands alone."""
+    kette: list[str] = []
+    an = HAENGT_AN.get(gruppe)
+    while an and an not in kette:
+        kette.append(an)
+        an = HAENGT_AN.get(an)
+    return kette
+
+
+def mit_traegern(gruppen: list[str]) -> list[str]:
+    """Whoever takes a group takes what carries it.
+
+    Ticking `Schwiegereltern` alone would drop two people into the other tree
+    with no line to anybody: their child - the partner - stayed behind.  The
+    same is true one level down and less obviously so: ticking `Geschwister`
+    without `Eltern` sends a sister who is nobody's sister over there, because
+    the parents that made her one did not travel.
+
+    So the carriers are added, and the dialog ticks their boxes to say so
+    rather than doing it quietly.
+    """
+    out = list(gruppen)
+    for gruppe in gruppen:
+        for an in traeger(gruppe):
+            if an not in out:
+                out.append(an)
+    # Back into the order the groups are offered in, so a preview reads the
+    # way the dialog does.
+    reihe = [g for g, _t, _v in GRUPPEN]
+    return sorted(out, key=lambda g: reihe.index(g) if g in reihe else len(reihe))
+
 
 def mit_ehepartner(gruppen: list[str]) -> list[str]:
-    """Whoever takes the in-laws takes the partner they hang off.
-
-    Without this, ticking `Schwiegereltern` alone would drop two people into
-    the other tree with no line to anybody: their child - the partner - stayed
-    behind, and a link is only ever drawn when both ends travelled.  So the
-    partner is added, and the dialog ticks the box to say so rather than doing
-    it quietly.
-    """
-    if "spouses" not in gruppen and any(g in UEBER_EHEPARTNER for g in gruppen):
-        return ["spouses"] + list(gruppen)
-    return list(gruppen)
+    """The old name, from when the partner was the only carrier there was."""
+    return mit_traegern(gruppen)
 
 
 def _feld(by_id: dict, pid: int, feld: str) -> list[int]:
@@ -218,7 +322,7 @@ def gruppe_ids(tree: dict, person_id: int, gruppe: str) -> list[int]:
 def vorschau(tree: dict, person_id: int, gruppen: list[str]) -> list[dict]:
     """Who would travel, by name - so the dialog can say it rather than imply it."""
     by_id = {int(p["id"]): p for p in tree.get("people") or []}
-    gruppen = mit_ehepartner(gruppen)
+    gruppen = mit_traegern(gruppen)
     seen: list[int] = []
     out: list[dict] = []
     for gruppe, titel, _vorgabe in GRUPPEN:
@@ -256,9 +360,15 @@ def schon_drueben(ziel: dict, namen: list[str]) -> list[dict]:
 
 
 # ------------------------------------------------------- keeping both sides
-def einsammeln(person: dict) -> dict:
-    """The half of a record that belongs to the person rather than the tree."""
-    return {f: person.get(f) for f in GETEILT}
+def einsammeln(person: dict, auswahl=None) -> dict:
+    """The half of a record that belongs to the person rather than the tree.
+
+    With `auswahl`, only the groups that link keeps in step.  A field outside
+    them is simply not in the result - so `verteilen` never touches it on the
+    far side, neither clearing it nor writing over it.
+    """
+    felder = GETEILT if auswahl is None else felder_fuer(auswahl)
+    return {f: person.get(f) for f in felder}
 
 
 def verteilen(ziel: dict, geteilt: dict) -> bool:
@@ -323,7 +433,7 @@ def _leer(person_id: int, blank) -> dict:
 
 def knuepfen(quelle: dict, quelle_slug: str, person_id: int,
              ziel: dict, ziel_slug: str, gruppen: list[str],
-             blank, naechste_id) -> dict:
+             blank, naechste_id, mit=None, mit_angehoerige=None) -> dict:
     """Copy a person - and the chosen groups around her - into another tree.
 
     Both trees are changed in place and handed back to the caller to save.
@@ -338,6 +448,13 @@ def knuepfen(quelle: dict, quelle_slug: str, person_id: int,
     3. The links BETWEEN the travellers are rebuilt with the target tree's own
        numbers.  A link is a number and numbers are local, so they cannot be
        copied; they are looked up through the uid map built on the way.
+
+    `mit` is what is kept in step for her, `mit_angehoerige` for everybody who
+    travels with her (the same as hers unless said otherwise; everything when
+    neither is given).  It is written on the link in both trees, so both read
+    the same answer and neither tree's setting can win over the other's.  The
+    files are not copied here - this module never touches a folder - but the
+    pairs that need them come back in `paare` for `store.dateien_abgleichen()`.
 
     Nobody is ever matched by name.  A person who already exists on the other
     side under a different number stays a second record until somebody says
@@ -356,7 +473,7 @@ def knuepfen(quelle: dict, quelle_slug: str, person_id: int,
 
     reisende: list[tuple[int, str | None]] = [(int(person_id), None)]
     anker_uid = uid_von(anker) or neue_uid()
-    gruppen = mit_ehepartner(gruppen)
+    gruppen = mit_traegern(gruppen)
     for gruppe, _titel, _vorgabe in GRUPPEN:
         if gruppe not in gruppen:
             continue
@@ -366,6 +483,9 @@ def knuepfen(quelle: dict, quelle_slug: str, person_id: int,
 
     uid_zu_dort: dict[str, int] = {}
     angelegt = 0
+    mit_ihr = bereiche(BEREICHE if mit is None else mit)
+    mit_den_anderen = mit_ihr if mit_angehoerige is None else bereiche(mit_angehoerige)
+    paare: list[dict] = []
 
     for pid, via in reisende:
         person = hier.get(pid)
@@ -382,8 +502,11 @@ def knuepfen(quelle: dict, quelle_slug: str, person_id: int,
             dort_nach_uid[uid] = neue
             angelegt += 1
 
-        verteilen(zwilling, einsammeln(person))
+        auswahl = mit_ihr if pid == int(person_id) else mit_den_anderen
+        verteilen(zwilling, einsammeln(person, auswahl))
         uid_zu_dort[uid] = int(zwilling["id"])
+        paare.append({"hier": pid, "dort": int(zwilling["id"]),
+                      "dateien": "dateien" in auswahl})
 
         beide = [{"slug": quelle_slug, "id": pid},
                  {"slug": ziel_slug, "id": int(zwilling["id"])}]
@@ -392,11 +515,13 @@ def knuepfen(quelle: dict, quelle_slug: str, person_id: int,
                      if t.get("slug") not in (quelle_slug, ziel_slug)] + beide
 
         person["link"] = {"uid": uid, "trees": fuer_alle,
-                          "via": alt.get("via"), "hidden": bool(alt.get("hidden"))}
+                          "via": alt.get("via"), "hidden": bool(alt.get("hidden")),
+                          "mit": list(auswahl)}
         drueben_alt = link_von(zwilling) or {}
         zwilling["link"] = {"uid": uid, "trees": fuer_alle,
                             "via": via if via else drueben_alt.get("via"),
-                            "hidden": bool(drueben_alt.get("hidden"))}
+                            "hidden": bool(drueben_alt.get("hidden")),
+                            "mit": list(auswahl)}
 
     # The family links among the travellers, in the target tree's numbering.
     # Only links whose other end also travelled are drawn: a parent left behind
@@ -422,4 +547,5 @@ def knuepfen(quelle: dict, quelle_slug: str, person_id: int,
 
     return {"uid": anker_uid, "angelegt": angelegt,
             "mitgenommen": len(reisende) - 1,
-            "ziel_id": uid_zu_dort.get(anker_uid)}
+            "ziel_id": uid_zu_dort.get(anker_uid),
+            "paare": paare}

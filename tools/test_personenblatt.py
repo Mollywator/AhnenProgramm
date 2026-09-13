@@ -154,11 +154,37 @@ class TestDieRollenNebenDenNamen(unittest.TestCase):
         self.assertIn('role === "parents"', chips)
         self.assertIn('role === "spouses"', chips)
 
-    def test_die_kinder_bekommen_keines(self):
-        """Not asked for, and a child's role is the parent's entry read from
-        the other end - one place, not two."""
+    def test_kinder_und_geschwister_haben_eines(self):
+        """Sohn/Tochter and Bruder/Schwester - asked for, so that a wrong
+        entry shows in the list itself. The word is the other person's sex."""
         chips = rumpf(self.s, "chipsHTML")
-        self.assertNotIn('role === "children"', chips)
+        self.assertIn('role === "children"', chips)
+        self.assertIn('role === "siblings"', chips)
+        for wort in ("Sohn", "Tochter", "Bruder", "Schwester"):
+            self.assertIn('t: "%s"' % wort, self.s, "im Dropdown fehlt " + wort)
+
+    def test_sohn_und_tochter_tragen_das_geschlecht_ein(self):
+        koerper = rumpf(self.s, "setRole")
+        self.assertIn('role === "children" || role === "siblings"', koerper)
+        self.assertIn("other.sex = value", koerper)
+        # "Kind" / "Geschwister" says nothing and must not clear a known sex.
+        self.assertIn('value === "m" || value === "w"', koerper)
+
+    def test_geschwister_stehen_neben_den_kindern(self):
+        self.assertIn('linkSection("siblings", "Geschwister"', self.s)
+        self.assertIn('class="secpair"', self.s)
+
+    def test_geschwister_bekommen_dieselben_eltern(self):
+        """Siblings are not stored - entering one hands over the parents."""
+        koerper = rumpf(self.s, "linkPerson")
+        self.assertIn('role === "siblings"', koerper)
+        self.assertIn("sib.parents", koerper)
+
+    def test_ein_fenster_bleibt_beim_neuzeichnen_wo_es_war(self):
+        koerper = rumpf(self.s, "closeSheetHard")
+        self.assertIn("lastSheet", koerper,
+                      "ein neu gezeichnetes Fenster springt wieder nach oben")
+        self.assertIn("new MutationObserver", self.s)
 
     def test_vater_und_mutter_tragen_das_geschlecht_ein(self):
         koerper = rumpf(self.s, "setRole")

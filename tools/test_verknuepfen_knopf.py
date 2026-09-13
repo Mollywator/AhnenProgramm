@@ -102,16 +102,51 @@ class TestAngeheirateteSeiteImDialog(unittest.TestCase):
                       "der Dialog hakt wieder alle Gruppen an - damit reist "
                       "eine zweite Familie mit, ohne dass jemand hinsah")
 
-    def test_wer_die_schwiegereltern_will_nimmt_die_ehepartner_mit(self):
+    def test_wer_eine_gruppe_will_nimmt_mit_woran_sie_haengt(self):
         f = re.search(r'data-linkgruppe\]"\);(.*?)refreshLinkPreview\(\);', self.s, re.S)
         self.assertIsNotNone(f, "die Gruppen-Checkboxen haben keinen Handler mehr")
         koerper = f.group(1)
-        self.assertIn('gewaehlt = ["spouses"].concat(gewaehlt)', koerper,
-                      "die angeheiratete Seite reist ohne den Ehepartner, an "
-                      "dem sie haengt")
-        self.assertIn("angeheiratet.includes(g)", koerper,
-                      "der Ehepartner laesst sich abwaehlen und seine Familie "
+        self.assertIn("linkTraeger(id)", koerper,
+                      "eine Gruppe reist ohne das, woran sie haengt - die "
+                      "Geschwister ohne die Eltern, die angeheiratete Seite "
+                      "ohne den Ehepartner")
+        self.assertIn("linkHaengtAn(id)", koerper,
+                      "der Traeger laesst sich abwaehlen und was an ihm hing "
                       "bleibt angehakt")
+
+    def test_woran_eine_gruppe_haengt_sagt_das_programm(self):
+        # Not the page: it ticks the carrier's box, the program decides who
+        # actually travels, and a second copy of the same rule is a copy to
+        # forget.  So the chain is read off `braucht`, which comes over the
+        # wire, and no group name is written into the handler.
+        f = re.search(r"const linkTraeger = (.*?)const linkHaengtAn", self.s, re.S)
+        self.assertIsNotNone(f, "linkTraeger gibt es nicht mehr")
+        self.assertIn(".braucht", f.group(1))
+        for gruppe in ("parents", "spouses", "siblings"):
+            self.assertNotIn('"%s"' % gruppe, f.group(1),
+                             "die Seite kennt die Traegerkette auswendig - "
+                             "dann driften Seite und Programm auseinander")
+
+
+class TestWasKommtMitImDialog(unittest.TestCase):
+    """The dialog asks what comes along, and actually sends the answer."""
+
+    def setUp(self):
+        self.s = vorlage()
+
+    def test_die_auswahl_wird_mitgeschickt(self):
+        f = re.search(r"async function runLink\(\)\{(.*?)\n\}", self.s, re.S)
+        self.assertIsNotNone(f, "runLink gibt es nicht mehr")
+        self.assertIn("mit: linkDraft.mit", f.group(1))
+        self.assertIn("mitAngehoerige: linkDraft.mitAngehoerige", f.group(1))
+
+    def test_die_gruppen_kommen_vom_programm(self):
+        self.assertIn("EDIT.feldgruppen", self.s)
+        self.assertIn("EDIT.vorbelegung", self.s)
+
+    def test_eine_bestehende_verknuepfung_laesst_sich_aendern(self):
+        self.assertIn("/api/link-mit", self.s)
+        self.assertIn("/api/mitnehmen", self.s)
 
 
 class TestVorschauBleibtWahr(unittest.TestCase):

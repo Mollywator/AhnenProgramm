@@ -181,9 +181,33 @@ class TestAngeheirateteSeite(unittest.TestCase):
     def test_die_ehepartner_kommen_zwangslaeufig_mit(self):
         # Ticked without them, the parents-in-law would arrive over there with
         # no line to anybody, because their child stayed behind.
-        self.assertEqual(v.mit_ehepartner(["spouse_parents"]),
+        self.assertEqual(v.mit_traegern(["spouse_parents"]),
                          ["spouses", "spouse_parents"])
-        self.assertEqual(v.mit_ehepartner(["parents"]), ["parents"])
+        self.assertEqual(v.mit_traegern(["parents"]), ["parents"])
+
+    def test_die_geschwister_der_ehepartner_nehmen_deren_eltern_mit(self):
+        # Two levels: his siblings are reached through his parents, and his
+        # parents through him.  Ticking the one box has to pull both.
+        self.assertEqual(v.traeger("spouse_siblings"),
+                         ["spouse_parents", "spouses"])
+        self.assertEqual(v.mit_traegern(["spouse_siblings"]),
+                         ["spouses", "spouse_parents", "spouse_siblings"])
+
+    def test_der_schwager_haengt_drueben_an_seinen_eltern(self):
+        # The bug this test exists for: ticked alone, the brother-in-law used
+        # to arrive as a person with no line to anybody at all - because the
+        # parents that make him a brother stayed behind.
+        ziel = {"meta": {}, "people": [], "marriages": []}
+        v.knuepfen(self.quelle, "baum-a", 1, ziel, "baum-b", ["spouse_siblings"],
+                   person_lib.blank_person, naechste_id)
+        person_lib.normalise_links(ziel["people"])
+        dort = {p["name"]: p for p in ziel["people"]}
+        self.assertIn("Schwager", dort)
+        eltern = sorted(dort["Schwager"]["parents"])
+        self.assertEqual(eltern, sorted([dort["Schwiegervater"]["id"],
+                                         dort["Schwiegermutter"]["id"]]))
+        # And from the other end: he is one of their children over there.
+        self.assertIn(dort["Schwager"]["id"], dort["Schwiegervater"]["children"])
 
     def test_die_vorschau_nennt_sie_beim_namen(self):
         namen = [r["name"] for r in v.vorschau(self.quelle, 1, ["spouse_parents"])]
@@ -472,6 +496,265 @@ class TestSpiegeln(unittest.TestCase):
         # No lookup into the other file needed to know who she is.
         self.assertEqual(eine["name"], "Person 1")
         self.assertEqual(allein["meta"]["format"], schema.FORMAT)
+
+
+class TestGeschwisterHaengenAnDenEltern(unittest.TestCase):
+    """A sister who travels without the parents is not a sister over there.
+
+    Siblings are not a field.  Nowhere in a record does it say who somebody's
+    sister is - she is the other child of the same parents, and that is the
+    only thing that makes her one.  So the group cannot travel on its own, and
+    the bug these tests were written for was exactly that: ticking Geschwister
+    with Eltern unticked put people in the second tree with no line to
+    anybody, to be joined up again by hand.
+    """
+
+    def setUp(self):
+        self.quelle = {"meta": {}, "people": [
+            person(1, "Sie",       parents=[3, 4]),
+            person(2, "Schwester", parents=[3, 4]),
+            person(3, "Vater",     spouses=[4], children=[1, 2]),
+            person(4, "Mutter",    spouses=[3], children=[1, 2]),
+        ], "marriages": []}
+
+    def test_geschwister_ziehen_die_eltern_nach(self):
+        self.assertEqual(v.traeger("siblings"), ["parents"])
+        self.assertEqual(v.mit_traegern(["siblings"]), ["parents", "siblings"])
+
+    def test_die_vorschau_sagt_es_bevor_geknuepft_wird(self):
+        # The dialog must not promise one person and deliver three.
+        namen = sorted(r["name"] for r in v.vorschau(self.quelle, 1, ["siblings"]))
+        self.assertEqual(namen, ["Mutter", "Schwester", "Vater"])
+
+    def test_die_schwester_haengt_drueben_an_denselben_eltern(self):
+        ziel = {"meta": {}, "people": [], "marriages": []}
+        v.knuepfen(self.quelle, "baum-a", 1, ziel, "baum-b", ["siblings"],
+                   person_lib.blank_person, naechste_id)
+        person_lib.normalise_links(ziel["people"])
+        dort = {p["name"]: p for p in ziel["people"]}
+        self.assertEqual(sorted(dort), ["Mutter", "Schwester", "Sie", "Vater"])
+        eltern = sorted([dort["Vater"]["id"], dort["Mutter"]["id"]])
+        self.assertEqual(sorted(dort["Schwester"]["parents"]), eltern)
+        self.assertEqual(sorted(dort["Sie"]["parents"]), eltern)
+        # Which is what makes them siblings over there, asked the way the
+        # program itself asks it.
+        self.assertEqual(v.gruppe_ids(ziel, dort["Sie"]["id"], "siblings"),
+                         [dort["Schwester"]["id"]])
+
+    def test_niemand_steht_drueben_ohne_eine_einzige_linie(self):
+        # The general form of the promise: whatever is ticked, nobody who
+        # travelled may arrive loose - every group has to reach the anchor.
+        for gruppe, _titel, _vorgabe in v.GRUPPEN:
+            quelle = angeheiratete_familie()
+            ziel = {"meta": {}, "people": [], "marriages": []}
+            v.knuepfen(quelle, "baum-a", 1, ziel, "baum-b", [gruppe],
+                       person_lib.blank_person, naechste_id)
+            person_lib.normalise_links(ziel["people"])
+            haben = {int(p["id"]): p for p in ziel["people"]}
+            for p in ziel["people"]:
+                if len(haben) == 1:
+                    continue
+                linien = (list(p["parents"]) + list(p["children"])
+                          + list(p["spouses"]))
+                self.assertTrue(linien, "%s steht bei „%s“ ohne Linie da"
+                                        % (p["name"], gruppe))
+
+
+class TestWasAbgeglichenWird(unittest.TestCase):
+    """A link keeps in step what it was told to - by default the whole person.
+
+    The promise in the words it was asked in: when everything is agreed, the
+    person is one to one the same in both trees. When less is agreed, what was
+    left out is not touched over there - not cleared, not written over.
+    """
+
+    def _familie(self):
+        return {"meta": {}, "people": [
+            person(1, "Sie", spouses=[2], birth={"year": 1931},
+                   occupation="Hebamme", notes=["privat"]),
+            person(2, "Er", spouses=[1], birth={"year": 1929}, occupation="Schmied"),
+        ], "marriages": []}
+
+    def test_ohne_auswahl_wird_alles_abgeglichen(self):
+        ziel = {"meta": {}, "people": [], "marriages": []}
+        v.knuepfen(self._familie(), "a", 1, ziel, "b", [],
+                   person_lib.blank_person, naechste_id)
+        dort = ziel["people"][0]
+        self.assertEqual(dort["occupation"], "Hebamme")
+        self.assertEqual(dort["notes"], ["privat"])
+        self.assertEqual(dort["link"]["mit"], list(v.BEREICHE))
+
+    def test_nur_name_laesst_den_rest_drueben_in_ruhe(self):
+        quelle = self._familie()
+        ziel = {"meta": {}, "people": [], "marriages": []}
+        v.knuepfen(quelle, "a", 1, ziel, "b", [],
+                   person_lib.blank_person, naechste_id, mit=["identitaet"])
+        dort = ziel["people"][0]
+        self.assertEqual(dort["name"], "Sie")
+        self.assertIsNone(dort["birth"])
+        self.assertIsNone(dort["occupation"])
+        # Both copies carry the same answer.
+        self.assertEqual(dort["link"]["mit"], ["identitaet"])
+        self.assertEqual(quelle["people"][0]["link"]["mit"], ["identitaet"])
+
+    def test_der_name_gehoert_immer_dazu(self):
+        self.assertEqual(v.bereiche([]), ["identitaet"])
+        self.assertEqual(v.bereiche(["dateien", "unbekannt"]), ["identitaet", "dateien"])
+
+    def test_einsammeln_nennt_nur_die_gewaehlten_felder(self):
+        geteilt = v.einsammeln(self._familie()["people"][0], ["identitaet"])
+        self.assertIn("name", geteilt)
+        self.assertNotIn("occupation", geteilt)
+        self.assertNotIn("notes", geteilt)
+
+    def test_angehoerige_koennen_weniger_mitnehmen(self):
+        ziel = {"meta": {}, "people": [], "marriages": []}
+        v.knuepfen(self._familie(), "a", 1, ziel, "b", ["spouses"],
+                   person_lib.blank_person, naechste_id,
+                   mit=list(v.BEREICHE), mit_angehoerige=["identitaet"])
+        dort = {p["name"]: p for p in ziel["people"]}
+        self.assertEqual(dort["Sie"]["occupation"], "Hebamme")
+        self.assertIsNone(dort["Er"]["occupation"])
+
+    def test_eine_alte_verknuepfung_hat_kein_limit(self):
+        alt = person(1, "Sie", link={"uid": "p-1", "trees": [], "via": None, "hidden": False})
+        self.assertEqual(v.bereiche_von(alt), list(v.BEREICHE))
+
+    def test_die_paare_sagen_wer_dateien_bekommt(self):
+        ziel = {"meta": {}, "people": [], "marriages": []}
+        r = v.knuepfen(self._familie(), "a", 1, ziel, "b", ["spouses"],
+                       person_lib.blank_person, naechste_id,
+                       mit=list(v.BEREICHE), mit_angehoerige=["identitaet"])
+        dateien = {p["hier"]: p["dateien"] for p in r["paare"]}
+        self.assertEqual(dateien, {1: True, 2: False})
+
+
+class TestPortraitUndUnterlagenReisenMit(unittest.TestCase):
+    """Her pictures travel with her, and stay the same in both trees.
+
+    Linking used to carry the record and leave the portrait and the documents
+    behind, because they are files in one tree's folder. Now they are copied -
+    under a name of their own over there, compared by content so a second
+    save never lays a second copy beside the first.
+    """
+
+    BILD = b"\x89PNG portrait bytes"
+    SCAN = b"%PDF urkunde bytes"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        os.environ["AHNEN_DATEN"] = self.tmp.name
+        for name in ("store", "namensliste"):
+            sys.modules.pop(name, None)
+        import store
+        self.store = store
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        os.environ.pop("AHNEN_DATEN", None)
+        sys.modules.pop("store", None)
+
+    def _schreibe(self, ordner, name, daten):
+        with open(os.path.join(ordner, name), "wb") as fh:
+            fh.write(daten)
+
+    def _verknuepft(self, mit=None):
+        st = self.store
+        a = st.empty_tree("Baum A")
+        a["people"] = kleine_familie()["people"]
+        a_slug = st.create("Baum A", a, open_it=True)
+        b_slug = st.create("Baum B", st.empty_tree("Baum B"), open_it=False)
+        quelle = st.load(a_slug)
+        eine = next(p for p in quelle["people"] if int(p["id"]) == 1)
+        self._schreibe(st.photo_dir(a_slug), "eigen_1_oma.png", self.BILD)
+        eine["photo"] = "eigen_1_oma.png"
+        self._schreibe(st.docs_dir(1, a_slug), "urkunde.pdf", self.SCAN)
+        eine["documents"] = [{"file": "urkunde.pdf", "title": "Urkunde"}]
+        st.save(quelle, a_slug)
+
+        quelle = st.load(a_slug)
+        ziel = st.load(b_slug)
+        r = v.knuepfen(quelle, a_slug, 1, ziel, b_slug, ["spouses"],
+                       person_lib.blank_person, st.next_id, mit=mit)
+        hier = {int(p["id"]): p for p in quelle["people"]}
+        dort = {int(p["id"]): p for p in ziel["people"]}
+        for paar in r["paare"]:
+            if paar["dateien"]:
+                st.dateien_abgleichen(hier[paar["hier"]], a_slug, dort[paar["dort"]], b_slug)
+        st.save(ziel, b_slug)
+        st.save(quelle, a_slug)
+        return a_slug, b_slug, r["ziel_id"]
+
+    def _sie_dort(self, b_slug, ziel_id):
+        return next(p for p in self.store.load(b_slug)["people"] if int(p["id"]) == ziel_id)
+
+    def test_das_portrait_kommt_mit_eigenem_namen_an(self):
+        _a, b_slug, ziel_id = self._verknuepft()
+        sie = self._sie_dort(b_slug, ziel_id)
+        self.assertEqual(sie["photo"], "eigen_%d_oma.png" % ziel_id)
+        with open(os.path.join(self.store.photo_dir(b_slug), sie["photo"]), "rb") as fh:
+            self.assertEqual(fh.read(), self.BILD)
+
+    def test_die_unterlagen_kommen_mit(self):
+        _a, b_slug, ziel_id = self._verknuepft()
+        sie = self._sie_dort(b_slug, ziel_id)
+        self.assertEqual([d["title"] for d in sie["documents"]], ["Urkunde"])
+        pfad = os.path.join(self.store.docs_dir(ziel_id, b_slug), sie["documents"][0]["file"])
+        with open(pfad, "rb") as fh:
+            self.assertEqual(fh.read(), self.SCAN)
+
+    def test_nochmal_speichern_kopiert_nichts_doppelt(self):
+        a_slug, b_slug, ziel_id = self._verknuepft()
+        for _ in range(3):
+            self.store.save(self.store.load(a_slug), a_slug)
+            self.store.save(self.store.load(b_slug), b_slug)
+        self.assertEqual(len(os.listdir(self.store.photo_dir(b_slug))), 1)
+        self.assertEqual(len(os.listdir(self.store.docs_dir(ziel_id, b_slug))), 1)
+        self.assertEqual(len(self._sie_dort(b_slug, ziel_id)["documents"]), 1)
+        # and nothing came back doubled into the tree it started in
+        self.assertEqual(len(os.listdir(self.store.photo_dir(a_slug))), 1)
+        self.assertEqual(len(os.listdir(self.store.docs_dir(1, a_slug))), 1)
+
+    def test_ein_neues_bild_drueben_steht_auch_hier(self):
+        a_slug, b_slug, ziel_id = self._verknuepft()
+        b = self.store.load(b_slug)
+        sie = next(p for p in b["people"] if int(p["id"]) == ziel_id)
+        self._schreibe(self.store.photo_dir(b_slug), "eigen_%d_neu.png" % ziel_id, b"neues bild")
+        sie["photo"] = "eigen_%d_neu.png" % ziel_id
+        sie["occupation"] = "Hebamme"
+        self.store.save(b, b_slug)
+
+        hier = next(p for p in self.store.load(a_slug)["people"] if int(p["id"]) == 1)
+        self.assertEqual(hier["occupation"], "Hebamme")
+        with open(os.path.join(self.store.photo_dir(a_slug), hier["photo"]), "rb") as fh:
+            self.assertEqual(fh.read(), b"neues bild")
+
+    def test_ohne_dateien_bleiben_sie_zurueck(self):
+        _a, b_slug, ziel_id = self._verknuepft(mit=["identitaet", "eckdaten"])
+        sie = self._sie_dort(b_slug, ziel_id)
+        self.assertFalse(sie.get("photo"))
+        self.assertEqual(sie.get("documents") or [], [])
+
+    def test_nur_name_zieht_den_beruf_nicht_nach(self):
+        a_slug, b_slug, ziel_id = self._verknuepft(mit=["identitaet"])
+        b = self.store.load(b_slug)
+        sie = next(p for p in b["people"] if int(p["id"]) == ziel_id)
+        sie["occupation"] = "Hebamme"
+        sie["name"] = "Person Eins"
+        self.store.save(b, b_slug)
+        hier = next(p for p in self.store.load(a_slug)["people"] if int(p["id"]) == 1)
+        self.assertEqual(hier["name"], "Person Eins")
+        self.assertNotEqual(hier.get("occupation"), "Hebamme")
+
+    def test_die_vorbelegung_ist_alles(self):
+        st = self.store
+        slug = st.create("Baum C", st.empty_tree("Baum C"), open_it=True)
+        self.assertEqual(st.vorbelegung(st.load(slug)), list(v.BEREICHE))
+        st.mitnehmen_setzen(slug=slug, global_="name")
+        self.assertEqual(st.vorbelegung(st.load(slug)), ["identitaet"])
+        st.mitnehmen_setzen(slug=slug, baum="standard",
+                            eigene={"standard": ["eckdaten"]})
+        self.assertEqual(st.vorbelegung(st.load(slug)), ["identitaet", "eckdaten"])
 
 
 if __name__ == "__main__":
