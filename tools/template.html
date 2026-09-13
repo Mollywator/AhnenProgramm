@@ -1065,13 +1065,16 @@ function bloodRelation(from, other){
     const half = shared < 2 && a.parents.length && b.parents.length ? "Halb" : "";
     return {label: half + MF(b, "bruder", "schwester", "geschwister").replace(/^./, c => half ? c : c.toUpperCase()), kind: "geschwister", total};
   }
-  if(up === 1) return {label: nephewWord(b, down), kind: "seitlich", total};
-  if(down === 1) return {label: auntWord(b, up), kind: "seitlich", total};
-  const grade = Math.min(up, down) - 1;
-  const removed = Math.abs(up - down);
-  let label = MF(b, "Cousin", "Cousine") + " " + grade + ". Grades";
-  if(removed) label += " · " + removed + " Generation" + (removed > 1 ? "en" : "") + " entfernt";
-  return {label, kind: "cousin", total};
+  /* German counts the side lines in grades, and the first grade goes unsaid:
+     a cousin's child is "Neffe 2. Grades", a parent's cousin "Onkel 2. Grades",
+     and the child of a Cousine 2. Grades is a Neffe 3. Grades.  The grade is
+     how far the shallower side reaches below the shared ancestor; the
+     generations between the two only decide Neffe, Großneffe, Urgroßneffe. */
+  const suffix = g => g > 1 ? " " + g + ". Grades" : "";
+  const kind = up > 1 && down > 1 ? "cousin" : "seitlich";
+  if(up === down) return {label: MF(b, "Cousin", "Cousine") + suffix(up - 1), kind, total};
+  if(down > up) return {label: nephewWord(b, down - up + 1) + suffix(up), kind, total};
+  return {label: auntWord(b, up - down + 1) + suffix(down), kind, total};
 }
 
 const firstName = id => (BY_ID.get(id) || {name: ""}).name.split(" ")[0];
@@ -4444,7 +4447,7 @@ document.getElementById("helpBtn").addEventListener("click", () => {
           <ul>
             <li><span>Knopf <b>＋ Person</b></span><span>Links oben. Legt jemanden an, der im Bericht von 2023 noch fehlt. Gespeichert wird erst, wenn unten <b>Speichern</b> gedrückt wird.</span></li>
             <li><span>Knopf <b>Bearbeiten</b></span><span>Rechts oben im Personenblatt. Das Blatt bleibt zum Lesen da; erst dieser Knopf macht Eingabefelder daraus.</span></li>
-            <li><span>Verwandtschaft</span><span>Nur <b>Eltern</b>, <b>Ehe</b> und <b>Kinder</b> werden eingetragen. Alles andere – Großonkel, Cousine 2. Grades, 3 x Ur-Großvater – rechnet das Programm daraus selbst aus, und zwar für jeden Mittelpunkt neu.</span></li>
+            <li><span>Verwandtschaft</span><span>Nur <b>Eltern</b>, <b>Ehe</b> und <b>Kinder</b> werden eingetragen. Alles andere – Großonkel, Neffe 2. Grades, 3 x Ur-Großvater – rechnet das Programm daraus selbst aus, und zwar für jeden Mittelpunkt neu.</span></li>
             <li><span>Lebenslauf</span><span>So viele Stationen wie gewünscht, jede mit Datum, Ort und einem Satz dazu. Ein Datum darf auch nur aus dem Jahr bestehen.</span></li>
             <li><span>Unterlagen</span><span>Urkunden und Scans hängen an der Person. Sie liegen im Ordner <b>data\dokumente</b> und gehen <b>nicht</b> mit, wenn die Datei für die Familie gebaut wird.</span></li>
             <li><span>Wo alles landet</span><span>In <b>data\edits.json</b> – nie in der Datei aus der PDF. Deshalb darf der Bericht jederzeit neu eingelesen werden, ohne dass hier etwas verlorengeht.</span></li>

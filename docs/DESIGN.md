@@ -300,10 +300,11 @@ the obvious first idea — is wrong, because from a child one steps up into the
 other parent, and then every in-law counts as blood. That bug made a whole
 married-in family show up as the centre's own flesh and blood.
 
-Note that the labels the page computes follow ordinary German usage
-(*Cousine 2. Grades*), while the labels quoted from the report follow
-MyHeritage's own convention (*Nichte 2. Grades*). Both are shown and both are
-marked as to where they come from.
+Note that the labels the page computes count side lines in grades, the way
+German does and the report does: the first grade goes unsaid (*Cousine*,
+*Neffe*), a cousin's child is a *Nichte 2. Grades*, a parent's cousin an
+*Onkel 2. Grades*, and the child of a *Cousine 2. Grades* a *Neffe 3. Grades*.
+Labels quoted from the report are still marked as to where they come from.
 
 ## Working on the program
 
