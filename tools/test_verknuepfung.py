@@ -120,6 +120,18 @@ class TestKnuepfen(unittest.TestCase):
         namen = [p["name"] for p in self.ziel["people"]]
         self.assertEqual(sorted(namen), ["Person 1", "Person 2", "Person 3"])
 
+    def test_zurueckverknuepfen_macht_niemanden_zu_hause_geliehen(self):
+        # Her husband's family is linked back from the second tree.  He and
+        # their child already stand in the first tree in their own right; the
+        # way back must not flag them as borrowed, or "Alle" drops them there.
+        partnerin = self.dort["Person 2"]
+        v.knuepfen(self.ziel, "baum-b", int(partnerin["id"]), self.quelle, "baum-a",
+                   ["spouses", "children"], person_lib.blank_person, naechste_id)
+        hier = {p["name"]: p for p in self.quelle["people"]}
+        self.assertFalse(v.geliehen(hier["Person 1"]))
+        self.assertFalse(v.geliehen(hier["Person 3"]))
+        self.assertFalse(v.geliehen(hier["Person 2"]))
+
 
 def angeheiratete_familie() -> dict:
     """Her, him, their child - and his whole family behind him.

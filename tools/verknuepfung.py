@@ -494,6 +494,10 @@ def knuepfen(quelle: dict, quelle_slug: str, person_id: int,
         uid = uid_von(person) or (anker_uid if pid == int(person_id) else neue_uid())
 
         zwilling = dort_nach_uid.get(uid)
+        # `via` is local.  Somebody who already stands on the far side keeps
+        # the standing they have there: a father who is at home in his own tree
+        # does not become borrowed because his son's wife links her family in.
+        schon_da = zwilling is not None
         if zwilling is None:
             neue = _leer(naechste_id(ziel), blank)
             ziel.setdefault("people", []).append(neue)
@@ -519,7 +523,7 @@ def knuepfen(quelle: dict, quelle_slug: str, person_id: int,
                           "mit": list(auswahl)}
         drueben_alt = link_von(zwilling) or {}
         zwilling["link"] = {"uid": uid, "trees": fuer_alle,
-                            "via": via if via else drueben_alt.get("via"),
+                            "via": drueben_alt.get("via") if schon_da else via,
                             "hidden": bool(drueben_alt.get("hidden")),
                             "mit": list(auswahl)}
 
