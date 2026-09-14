@@ -719,8 +719,8 @@ def main() -> None:
         sex_from_label = guess_sex("", relation)
         sex = sex_from_prose or sex_from_label or guess_sex(body, None)
         if sex_from_prose and sex_from_label and sex_from_prose != sex_from_label:
-            problems.append(("Pruefen", "Person %d (%s): Erzaehltext sagt '%s', die Beziehung "
-                                        "'%s' sagt '%s'." % (pid, names.get(pid), sex_from_prose,
+            problems.append(("Pruefen", "%s (#%d): Erzaehltext sagt '%s', die Beziehung "
+                                        "'%s' sagt '%s'." % (names.get(pid), pid, sex_from_prose,
                                                              relation, sex_from_label)))
 
         people[pid] = {
@@ -753,7 +753,7 @@ def main() -> None:
             if parent in people:
                 people[parent]["children"].append(pid)
             else:
-                problems.append(("Struktur", "Person %d nennt Elternteil %d, den es im Bericht nicht gibt." % (pid, parent)))
+                problems.append(("Struktur", "%s (#%d) nennt Elternteil #%d, den es im Bericht nicht gibt." % (person["name"], pid, parent)))
     for person in people.values():
         person["children"] = sorted(set(person["children"]),
                                     key=lambda c: (birth_year(people[c], events) or 9999, c))

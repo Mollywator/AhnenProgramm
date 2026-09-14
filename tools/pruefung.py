@@ -19,8 +19,14 @@ and asks again.  So a broken file is read as an empty one, never as an error.
     {
       "version": 1,
       "personen": {"<id>": {"sig": "...", "funde": [{"eltern": 2, "print": "..."}]}},
-      "entscheidungen": {"<parent id>:<child id>": {"print": "...", "art": "geprueft", "am": "2026-09-14"}}
+      "entscheidungen": {"<parent id>:<child id>": {"print": "...", "art": "geprueft", "am": "2026-09-14"}},
+      "doppelt": {"<lower id>:<higher id>": {"print": "...", "am": "2026-09-14"}}
     }
+
+`doppelt` holds suspected double entries somebody confirmed to be two
+different people - two uncles born the same year under the same name do exist.
+It is its own section because its keys are two people of equal standing, not a
+parent and a child.
 
 `sig` and `print` are fingerprints written by the page.  They are compared,
 never interpreted: when a date changes the fingerprint no longer matches, and
@@ -36,7 +42,7 @@ ARTEN = ("geprueft", "verworfen")
 
 
 def leer() -> dict:
-    return {"version": 1, "personen": {}, "entscheidungen": {}}
+    return {"version": 1, "personen": {}, "entscheidungen": {}, "doppelt": {}}
 
 
 def _zahl(wert) -> int | None:
@@ -68,6 +74,14 @@ def bereinigen(roh) -> dict:
             continue
         out["entscheidungen"]["%d:%d" % (_zahl(teile[0]), _zahl(teile[1]))] = {
             "print": rec["print"], "art": rec["art"], "am": str(rec.get("am") or "")[:10]}
+    for key, rec in (roh.get("doppelt") or {}).items():
+        teile = [_zahl(t) for t in str(key).split(":")]
+        if len(teile) != 2 or None in teile or teile[0] == teile[1]:
+            continue
+        if not isinstance(rec, dict) or not isinstance(rec.get("print"), str):
+            continue
+        out["doppelt"]["%d:%d" % tuple(sorted(teile))] = {
+            "print": rec["print"], "am": str(rec.get("am") or "")[:10]}
     return out
 
 

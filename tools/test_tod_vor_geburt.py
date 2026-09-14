@@ -162,7 +162,8 @@ class TestHintergrundpruefung(unittest.TestCase):
         self.assertIn('=== "step"', f, "Stiefeltern werden nicht gemessen")
 
     def test_pruefen_und_verwerfen_stehen_im_bericht(self):
-        f = teil(self.s, r"function deathReportHTML\(\)\{.*?\n\}")
+        f = (teil(self.s, r"function deathReportHTML\(\)\{.*?\n\}")
+             + teil(self.s, r"function deathRowHTML\(f\)\{.*?\n\}"))
         self.assertIn("Geprüft – passt so", f)
         self.assertIn("Nicht nachprüfbar – ausblenden", f)
         self.assertIn("data-decide-all", f)

@@ -20,6 +20,7 @@ does the same wherever Python is installed.
 from __future__ import annotations
 
 import base64
+import datetime
 import hashlib
 import http.server
 import json
@@ -47,9 +48,11 @@ import gedcom  # noqa: E402
 import edits as person_lib  # noqa: E402
 import export as export_lib  # noqa: E402
 import format as schema  # noqa: E402  - "format" is a builtin, hence the rename
+import papierkorb  # noqa: E402  - merges kept 60 days so they can be taken back
 import pruefung  # noqa: E402  - what the background check looked at and decided
 import store  # noqa: E402
 import verknuepfung  # noqa: E402  - the same person in more than one tree
+import zusammenfuehren as zusammen_lib  # noqa: E402  - two records of one person
 import zweig  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -320,6 +323,10 @@ def read_state(tree: dict) -> dict:
         # What the background check already looked at and what was decided -
         # from pruefung.json beside the tree, never from baum.json.
         "pruefung": pruefung.laden(store.tree_dir(create=False)),
+        # Merges of the last 60 days, and the fields a merge compares - sent
+        # rather than hard-coded so the page and zusammenfuehren.py agree.
+        "papierkorb": papierkorb.laden(store.tree_dir(create=False)),
+        "zusammenfuehrenFelder": zusammen_lib.felder_fuer_seite(),
         # `None` im Hauptordner: dort gibt es keinen Zweig, und alles, was
         # daran haengt - Fenstertitel, Uebungsbaum - faellt damit still weg.
         "zweig": zweig.info(ROOT),
@@ -566,6 +573,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.api_pruefen()
             if route == "/api/pruefung":
                 return self.api_pruefung()
+            if route == "/api/zusammenfuehren":
+                return self.api_zusammenfuehren()
+            if route == "/api/zusammenfuehren-rueckgaengig":
+                return self.api_zusammenfuehren_rueckgaengig()
             if route == "/api/umziehen":
                 return self.api_umziehen()
             if route == "/api/open-folder":
@@ -722,6 +733,66 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.fail(409, "Kein Stammbaum offen")
         pruefung.speichern(store.tree_dir(slug, create=False), self.body().get("pruefung"))
         self.send_json({"ok": True})
+
+    def api_zusammenfuehren(self) -> None:
+        """Merge two records of one person, as the person using the editor decided.
+
+        The files move first and the tree is saved after; a save that fails puts
+        the files back.  The entry for the Papierkorb is written last, once the
+        merged tree is safely on disk.
+        """
+        slug = store.open_slug()
+        if not store.has_tree(slug):
+            return self.fail(409, "Kein Stammbaum offen")
+        body = self.body()
+        try:
+            behalten, entfernt = int(body.get("behalten")), int(body.get("entfernt"))
+        except (TypeError, ValueError):
+            return self.fail(400, "Ungueltige Nummern")
+        ordner = store.tree_dir(slug, create=False)
+        base = os.path.join(ordner, store.DOCS_DIRNAME)
+        tree = current_tree()
+        try:
+            eintrag = zusammen_lib.ausfuehren(tree, behalten, entfernt, body.get("wahl") or {}, base)
+        except ValueError as err:
+            return self.fail(400, str(err))
+        try:
+            store.save(tree, slug)
+        except Exception:
+            zusammen_lib.dateien_verschieben(base, eintrag["dateien"], rueckwaerts=True)
+            raise
+        zusammen_lib.nachher_merken(eintrag, tree)
+        papierkorb.hinzufuegen(ordner, eintrag)
+        self.send_json({"ok": True, "eintrag": eintrag["id"], "nummer": behalten})
+
+    def api_zusammenfuehren_rueckgaengig(self) -> None:
+        """Take a merge from the Papierkorb back."""
+        slug = store.open_slug()
+        if not store.has_tree(slug):
+            return self.fail(409, "Kein Stammbaum offen")
+        ordner = store.tree_dir(slug, create=False)
+        base = os.path.join(ordner, store.DOCS_DIRNAME)
+        daten = papierkorb.laden(ordner)
+        eintrag = papierkorb.finden(daten, str(self.body().get("id") or ""))
+        if not eintrag:
+            return self.fail(404, "Nicht mehr im Papierkorb")
+        if eintrag.get("rueckgaengig"):
+            return self.fail(409, "Schon rückgängig gemacht")
+        tree = current_tree()
+        try:
+            ergebnis = zusammen_lib.rueckgaengig(tree, eintrag, base)
+        except ValueError as err:
+            return self.fail(400, str(err))
+        try:
+            store.save(tree, slug)
+        except Exception:
+            zusammen_lib.dateien_verschieben(base, ergebnis["verschoben"], rueckwaerts=True)
+            raise
+        eintrag["rueckgaengig"] = {
+            "am": datetime.datetime.now().isoformat(timespec="seconds"),
+            "nummer": ergebnis["nummer"], "hinweise": ergebnis["hinweise"]}
+        papierkorb.speichern(ordner, daten)
+        self.send_json({"ok": True, "nummer": ergebnis["nummer"], "hinweise": ergebnis["hinweise"]})
 
     def api_new(self) -> None:
         """Start an empty tree - what another family sees on their first day."""

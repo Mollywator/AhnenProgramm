@@ -74,6 +74,45 @@ to the reader.
 of parser bugs: at the time of writing all 15 entries are inconsistencies in the
 source data.
 
+Every person a finding names carries their entry number (`#12`), and the number
+opens their sheet (`linkIds`). A finding that suspects two entries of being one
+person - "dieselbe Person", "doppelt erfasst", "gleicher Name und Jahrgang" -
+also gets *Beide im Stammbaum zeigen* (`pairOf`, `showPair`). It marks both boxes
+in the tree exactly as it stands - no new centre, no other view, no zoom - because
+two boxes pulled next to each other would claim something the tree does not. A
+marked box outside the picture gets an arrow at the edge (`updateSpotArrows`,
+redrawn from `paint`); clicking it only pans there. A box the current view does
+not draw is named in the bar under the tree, with *Ganzen Baum zeigen* as an
+explicit click.
+
+### Merging two entries
+
+`zusammenfuehren.py` merges two records of one person, only ever by hand: from a
+duplicate finding, from the bar under the tree, or from a person's sheet
+(*Zusammenführen …*, search by number or name). The page shows both records
+field by field (`renderMerge`, field list sent by the server). Equal values and
+values present on one side are taken; lists are unioned; every disagreement has
+to be answered, and a text may be kept from both sides. The merge takes a second
+click. Relatives pointing at the removed number are re-pointed, documents move
+into the kept number's folder. Merging a parent with its child, or removing a
+number that is linked to another tree, is refused.
+
+Each merge is written to `papierkorb.json` beside the tree with both records as
+they were, the trail on every relative and the moved files, and kept for 60
+days. The Prüfbericht lists it under *Zusammengeführt* with what happened to
+every field, and *rückgängig* takes it back: unchanged relatives return exactly,
+changed ones only get the link back, and a number handed out in the meantime is
+replaced by a new one.
+
+In the editor such a pair can be confirmed as two different people (two uncles
+of the same name and year do exist): *Passt so – zwei verschiedene Personen*.
+Every decision in the report takes two clicks (`askButton`) so nothing is
+clicked away in passing. Confirmed findings - pairs and deaths marked
+*Geprüft* - leave the open list for a *Geprüft* section at the foot of the
+report, each with its date and *rückgängig*. Pairs are stored under `doppelt`
+in `pruefung.json` with a fingerprint of both people's name, birth and parents;
+when one of those changes, the finding asks again.
+
 In the editor the same button also carries a check that runs in the background
 while the program is open: a mother who died before a child's birth, or a father
 who died more than eleven months before it (`diedBeforeChild` in the page,

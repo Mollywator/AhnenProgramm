@@ -282,6 +282,37 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
   box-shadow:0 0 0 4px var(--accent-soft),var(--shadow);
 }
 .box.centre b{color:var(--accent);font-weight:600}
+/* two entries the Prüfbericht thinks may be one person, pointed out in the tree */
+.box.spot{
+  border-color:var(--accent);border-width:2px;z-index:6;
+  outline:4px solid var(--accent);outline-offset:5px;
+  animation:spotpuls 1.6s ease-in-out infinite;
+}
+@keyframes spotpuls{
+  0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 60%,transparent),var(--shadow)}
+  50%{box-shadow:0 0 0 22px transparent,var(--shadow)}
+}
+.box.spot.spot-blink{animation:spotblink .45s ease-in-out 4}
+@keyframes spotblink{50%{outline-color:transparent}}
+/* arrows on the edge of the picture towards marked boxes out of sight */
+.spotarrows{position:absolute;inset:0;pointer-events:none;z-index:9;overflow:hidden}
+.spotarrow{
+  position:absolute;transform:translate(-50%,-50%);pointer-events:auto;cursor:pointer;
+  display:flex;align-items:center;gap:5px;border:0;border-radius:18px;padding:6px 11px 6px 9px;
+  background:var(--accent);color:#fff;box-shadow:var(--shadow);font:600 13px var(--sans);
+}
+.spotarrow .pfeil{display:inline-block;font-size:18px;line-height:1}
+.spotbar{
+  position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:8;
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;
+  max-width:calc(100% - 24px);background:var(--card);border:1px solid var(--accent);
+  border-radius:3px;padding:8px 10px;box-shadow:var(--shadow);
+  font-family:var(--sans);font-size:13px;color:var(--ink-2);
+}
+/* something still to do: a marked person this view does not draw */
+.spotbar .spot-todo{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.spotbar .spot-todo:hover{background:var(--accent);color:#fff;box-shadow:0 0 0 3px var(--accent-soft)}
+.spotbar .spot-todo-text{color:var(--accent);font-weight:600}
 .box.married{
   background:color-mix(in srgb,var(--card) 70%,var(--paper-2));
   border-style:dashed;border-color:var(--rule-2);
@@ -568,6 +599,29 @@ html[data-theme="abend"] .scrim{background:rgba(0,0,0,.7)}
 .check .tag.Struktur{border-color:var(--accent);color:var(--accent)}
 .check .tag.Datum{border-color:var(--accent);color:var(--accent)}
 .check p{margin:0;font-size:15.5px;color:var(--ink-2)}
+/* the second click of a decision */
+.askbox{margin-top:8px;padding:10px 12px;border:1px solid var(--accent);border-radius:3px;background:var(--accent-soft)}
+.askbox p{font-size:14.5px}
+.askbox .yes{border-color:var(--accent);color:var(--accent);font-weight:600}
+/* merging two entries */
+.mg-wrap{overflow-x:auto}
+table.mg{border-collapse:collapse;width:100%;font-size:14.5px}
+table.mg th,table.mg td{padding:7px 8px;border-bottom:1px dotted var(--rule);vertical-align:top;text-align:left}
+table.mg thead th{font:600 11.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+table.mg tbody th{font-weight:500;color:var(--ink-2);white-space:nowrap}
+table.mg small{display:block;color:var(--ink-3);font-size:12.5px}
+table.mg tr.mg-conflict{background:var(--accent-soft)}
+.mg-text{max-height:7.5em;overflow:auto;white-space:pre-wrap}
+.mg-empty,.mg-same{color:var(--ink-3)}
+.mg-take{color:var(--ink-2)}
+.mg-choice{display:flex;flex-direction:column;gap:4px}
+.mg-choice.open{outline:2px solid var(--accent);outline-offset:3px;border-radius:2px}
+.mg-opt{white-space:nowrap;cursor:pointer}
+.mg-opt.on{color:var(--accent);font-weight:600}
+.mg-list{margin:6px 0 0;padding-left:18px;font-size:14.5px;color:var(--ink-2)}
+.mg-search{margin-top:12px;width:100%;max-width:360px;font:inherit;padding:8px 10px;
+  border:1px solid var(--rule);border-radius:2px;background:var(--card);color:inherit}
+.mg-hit{display:block;text-align:left;margin:0 0 6px}
 .legend{font-size:15px;color:var(--ink-2);margin:0 0 4px}
 details.raw summary{
   font-family:var(--sans);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
@@ -897,6 +951,8 @@ html[data-edit] .editonly.flex{display:flex !important}
     <div class="stagewrap">
       <div class="stage" id="stage"><div class="pan" id="pan"><div class="plane" id="plane"></div></div></div>
       <div class="rail" id="rail"></div>
+      <div class="spotarrows" id="spotarrows"></div>
+      <div class="spotbar" id="spotbar" hidden></div>
     </div>
     <p class="legend">
       <s><span class="swatch centre"></span> Mittelpunkt</s>
@@ -923,7 +979,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.9.0";
+const VERSION = "1.10.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -1332,6 +1388,7 @@ const treeTitle = slug => {
    another tree, and which optional degrees the near view reaches.  Both are
    per reader and per browser - they change what is on screen, never the file. */
 let showLinked = false;
+let spotlight = [];          // ids pointed out in the tree from the Prüfbericht
 const nearExtra = {schwiegereltern: true, schwiegergross: false, schwager: false, neffen: false};
 
 function nearSet(id){
@@ -1883,7 +1940,7 @@ let design = "tafel";
 
 function boxHTML(id, x, y, classes, tag){
   const p = BY_ID.get(id);
-  return `<div class="box ${classes}${isGone(p) ? " gone" : ""}${id === armed ? " armed" : ""}" data-person="${id}"
+  return `<div class="box ${classes}${isGone(p) ? " gone" : ""}${id === armed ? " armed" : ""}${spotlight.includes(id) ? " spot" : ""}" data-person="${id}"
       style="left:${x}px;top:${y}px;width:${NW}px;height:${NH}px">
       <button class="pick" data-centre="${id}"
           title="${esc(p.name)}${p.relation ? " · " + esc(p.relation) : ""} — anklicken macht diese Person zum Mittelpunkt">
@@ -2193,6 +2250,7 @@ function renderTree(){
   document.getElementById("legendCount").textContent =
     people.size + " von " + DATA.meta.count + " Personen im Bild";
 
+  renderSpotbar();
   applyScale();
   requestAnimationFrame(settleView);
 }
@@ -2237,6 +2295,7 @@ function paint(){
   plane.classList.toggle("tiny", view.scale < 0.62 && view.scale >= 0.3);
   plane.classList.toggle("micro", view.scale < 0.3);
   syncRail();
+  if(spotlight.length) updateSpotArrows();
 }
 
 function applyScale(){
@@ -2513,6 +2572,8 @@ function sheetHTML(p){
                about this person", and which trees carry her is that kind of
                question, not a field to be typed in. -->
           ${IS_EDIT ? linkButtonHTML(p) : ""}
+          ${IS_EDIT ? `<button class="btn editonly" data-merge-pick="${p.id}"
+            title="Diese Person ist ein zweites Mal im Baum">Zusammenführen …</button>` : ""}
         </div>
       </div>
       <div class="sheet-body">${sections.join("")}</div>
@@ -2847,7 +2908,7 @@ function deathCheck(parentId, childId){
   if((child.parent_kind || {})[parentId] === "step" || !diedBeforeChild(parent, child)) return null;
   const print = deathPrint(parent, child);
   const when = d => shortDate(d) || String(d.year);
-  const name = p => p.name || "#" + p.id;
+  const name = p => p.name ? p.name + " (#" + p.id + ")" : "#" + p.id;
   const text = name(parent) + " starb " + when(parent.death) + ", "
     + name(child) + " kam aber " + when(child.birth) + " zur Welt – "
     + (parent.sex === "w" ? "als Mutter nicht möglich."
@@ -2876,6 +2937,8 @@ function deathCheck(parentId, childId){
 var PRUEFUNG = (EDIT && EDIT.pruefung) || {personen: {}, entscheidungen: {}};
 PRUEFUNG.personen = PRUEFUNG.personen || {};
 PRUEFUNG.entscheidungen = PRUEFUNG.entscheidungen || {};
+PRUEFUNG.doppelt = PRUEFUNG.doppelt || {};
+var pruefAsk = "";                // the decision waiting for its second click
 var deathSeen = new Map();        // person id -> what the check last read
 var deathFound = new Map();       // person id -> findings as that person's child
 var deathKnown = new Set();       // findings already reported - no message again
@@ -2968,35 +3031,122 @@ function updateCheckButton(){
   const btn = document.getElementById("checkBtn");
   if(!btn) return;
   const open = openDeathFindings().length;
-  btn.hidden = !((DATA.checks || []).length || deathFound.size);
+  btn.hidden = !((DATA.checks || []).length || deathFound.size
+                 || (PAPIERKORB && PAPIERKORB.eintraege.length));
   btn.innerHTML = "Prüfbericht" + (open ? ` <span class="pruefzahl">${open}</span>` : "");
   btn.title = open ? open + " offene Punkte" : "";
 }
 
 const DECIDED_TEXT = {geprueft: "Geprüft – passt so", verworfen: "Nicht nachprüfbar – ausgeblendet"};
 
+const ASK_TEXT = {
+  geprueft: "Wirklich als geprüft ablegen? Der Punkt steht dann unten unter „Geprüft“ "
+    + "und meldet sich erst wieder, wenn sich eines der Daten ändert.",
+  verworfen: "Wirklich ausblenden? Der Punkt meldet sich erst wieder, wenn sich eines der Daten ändert.",
+  alle: "Wirklich alle offenen Punkte dieser Liste ausblenden?",
+  paar: "Wirklich zwei verschiedene Menschen? Der Punkt steht dann unten unter „Geprüft“ "
+    + "und meldet sich erst wieder, wenn sich Name, Geburt oder Eltern der beiden ändern.",
+};
+
+/* A decision takes two clicks, so a finding cannot be clicked away in passing:
+   the first shows what is about to happen, the second does it.  `doAttr` is
+   the attribute the second click carries to the handler that saves. */
+function askButton(value, label, doAttr, text){
+  if(pruefAsk !== value)
+    return `<button class="btn" style="margin:6px 6px 0 0" data-ask="${value}">${label}</button>`;
+  return `<div class="askbox"><p>${text}</p>
+    <button class="btn yes" style="margin:6px 6px 0 0" ${doAttr}>Ja, bestätigen</button>
+    <button class="btn" style="margin:6px 6px 0 0" data-ask="">Abbrechen</button></div>`;
+}
+
+const deDate = iso => iso ? " am " + esc(iso.split("-").reverse().join(".")) : "";
+
+function deathRowHTML(f){
+  const undo = `<button class="btn" style="margin:6px 6px 0 0" data-decide="|${f.key}">rückgängig</button>`;
+  return `<div class="check"><span class="tag Datum">Datum</span>
+    <div><p>${linkIds(esc(f.text))}</p>
+      ${!EDIT ? "" : f.decided
+        ? `<p class="hintline">${DECIDED_TEXT[f.decided]}${deDate((PRUEFUNG.entscheidungen[f.key] || {}).am)}.
+            ${undo}</p>`
+        : askButton("geprueft|" + f.key, "Geprüft – passt so",
+                    `data-decide="geprueft|${f.key}"`, ASK_TEXT.geprueft)
+          + askButton("verworfen|" + f.key, "Nicht nachprüfbar – ausblenden",
+                      `data-decide="verworfen|${f.key}"`, ASK_TEXT.verworfen)}</div></div>`;
+}
+
+/* Confirmed findings leave this list for the "Geprüft" section at the foot of
+   the report; the ones hidden as not verifiable stay folded away here. */
 function deathReportHTML(){
   const all = [...deathFound.values()].flat();
   if(!all.length) return "";
-  const open = all.filter(f => !f.decided), done = all.filter(f => f.decided);
-  const btn = (value, label) =>
-    `<button class="btn" style="margin:6px 6px 0 0" data-decide="${value}">${label}</button>`;
-  const row = f => `<div class="check"><span class="tag Datum">Datum</span>
-    <div><p>${esc(f.text)}
-      <button class="plink" style="padding:1px 7px;font-size:14px" data-open="${f.child}">ansehen</button></p>
-      ${!EDIT ? "" : f.decided
-        ? `<p class="hintline">${DECIDED_TEXT[f.decided]}${
-            (PRUEFUNG.entscheidungen[f.key] || {}).am ? " am " + esc(PRUEFUNG.entscheidungen[f.key].am.split("-").reverse().join(".")) : ""}.
-            ${btn("|" + f.key, "rückgängig")}</p>`
-        : btn("geprueft|" + f.key, "Geprüft – passt so")
-          + btn("verworfen|" + f.key, "Nicht nachprüfbar – ausblenden")}</div></div>`;
+  const open = all.filter(f => !f.decided), hidden = all.filter(f => f.decided === "verworfen");
   return `<div class="sec"><h3>Lebensdaten · Elternteil starb vor der Geburt</h3>
-    ${open.length ? open.map(row).join("") : `<p class="legend">Nichts mehr offen.</p>`}
-    ${EDIT && open.length > 1 ? `<div style="margin-top:12px"><button class="btn" data-decide-all="verworfen">
-      Alle ${open.length} offenen ausblenden – nicht nachprüfbar</button></div>` : ""}
-    ${done.length ? `<details style="margin-top:12px"><summary class="hintline">Erledigt (${done.length})</summary>
-      ${done.map(row).join("")}</details>` : ""}</div>`;
+    ${open.length ? open.map(deathRowHTML).join("") : `<p class="legend">Nichts mehr offen.</p>`}
+    ${EDIT && open.length > 1 ? `<div style="margin-top:12px">${askButton("alle",
+      `Alle ${open.length} offenen ausblenden – nicht nachprüfbar`,
+      `data-decide-all="verworfen"`, ASK_TEXT.alle)}</div>` : ""}
+    ${hidden.length ? `<details style="margin-top:12px"><summary class="hintline">Ausgeblendet – nicht nachprüfbar (${hidden.length})</summary>
+      ${hidden.map(deathRowHTML).join("")}</details>` : ""}</div>`;
 }
+
+/* ---- suspected double entries confirmed as two people --------------------- */
+const pairKey = pair => Math.min(...pair) + ":" + Math.max(...pair);
+
+/* What the confirmation was made about.  A changed name, birth or parent set
+   of either person makes it stale, and the finding asks again. */
+function pairPrint(pair){
+  return JSON.stringify(pair.slice().sort((a, b) => a - b).map(id => {
+    const p = BY_ID.get(id) || {};
+    return [p.name || "", p.birth || null, (p.parents || []).slice().sort((a, b) => a - b)];
+  }));
+}
+
+function pairConfirmed(pair){
+  const said = PRUEFUNG.doppelt[pairKey(pair)];
+  return !!(EDIT && said && said.print === pairPrint(pair));
+}
+
+const KIND_LABEL = k => k === "Pruefen" ? "Prüfen" : k === "Luecke" ? "Lücke" : k;
+
+/* Everything somebody looked at and confirmed, in one place at the foot of the
+   report, each with the day it was confirmed and a way back. */
+function confirmedHTML(){
+  if(!EDIT) return "";
+  const deaths = [...deathFound.values()].flat().filter(f => f.decided === "geprueft");
+  const pairs = (DATA.checks || []).map(c => [c, pairOf(c.text)]).filter(([, p]) => p && pairConfirmed(p));
+  if(!deaths.length && !pairs.length) return "";
+  return `<div class="sec"><h3>Geprüft · ${deaths.length + pairs.length} bestätigt</h3>
+    <p class="legend">Angesehen und für richtig befunden. „rückgängig“ holt einen Punkt zurück in den Bericht.</p>
+    ${pairs.map(([c, pair]) => `<div class="check"><span class="tag ${c.kind}">${KIND_LABEL(c.kind)}</span>
+      <div><p>${linkIds(esc(c.text))}</p>
+        <p class="hintline">Zwei verschiedene Personen – bestätigt${deDate(PRUEFUNG.doppelt[pairKey(pair)].am)}.
+          <button class="btn" style="margin:6px 6px 0 0" data-pair="${pair.join(" ")}">Beide im Stammbaum zeigen</button>
+          <button class="btn" style="margin:6px 6px 0 0" data-pair-undo="${pairKey(pair)}">rückgängig</button></p></div></div>`).join("")}
+    ${deaths.map(deathRowHTML).join("")}</div>`;
+}
+
+document.addEventListener("click", async e => {
+  const ask = e.target.closest("[data-ask]");
+  if(ask){ pruefAsk = ask.dataset.ask; openCheckSheet(); return; }
+  const b = e.target.closest("[data-pair-ok],[data-pair-undo]");
+  if(!b || !EDIT) return;
+  const key = b.dataset.pairOk || b.dataset.pairUndo;
+  const before = JSON.stringify(PRUEFUNG.doppelt);
+  if(b.dataset.pairOk){
+    PRUEFUNG.doppelt[key] = {print: pairPrint(key.split(":").map(Number)),
+                             am: new Date().toISOString().slice(0, 10)};
+  } else delete PRUEFUNG.doppelt[key];
+  b.disabled = true;
+  try{
+    await savePruefung();
+    pruefAsk = "";
+    openCheckSheet();
+  }catch(err){
+    PRUEFUNG.doppelt = JSON.parse(before);
+    say("Nicht gespeichert – " + err.message, true);
+    b.disabled = false;
+  }
+});
 
 /* A decision goes to pruefung.json at once.  "verworfen" is for what cannot be
    asked about any more - a record from 1600 copied as it stood - and hides the
@@ -3022,6 +3172,7 @@ document.addEventListener("click", async e => {
   b.disabled = true;
   try{
     await savePruefung();
+    pruefAsk = "";
     updateCheckButton();
     openCheckSheet();
   }catch(err){
@@ -5157,16 +5308,35 @@ const KIND_TEXT = {
 document.getElementById("checkBtn").addEventListener("click", () => openCheckSheet());
 function openCheckSheet(){
   const checks = DATA.checks || [];
+  // a confirmed pair has moved down to "Geprüft"
+  const open = checks.filter(c => {
+    const p = pairOf(c.text), raw = pairOf(c.text, true);
+    return !(p && pairConfirmed(p)) && !(raw && mergedAway(raw));
+  });
   const order = ["Struktur", "Datum", "Pruefen", "Luecke"];
-  const groups = order.filter(k => checks.some(c => c.kind === k));
+  const groups = order.filter(k => open.some(c => c.kind === k));
   const deaths = deathReportHTML();
+  const confirmed = confirmedHTML();
+  const merged = mergedHTML();
   const body = deaths + (groups.length ? groups.map(k => `<div class="sec">
       <h3>${k === "Pruefen" ? "Prüfen" : k === "Luecke" ? "Lücken" : k} · ${KIND_TEXT[k]}</h3>
-      ${checks.filter(c => c.kind === k).map(c =>
-        `<div class="check"><span class="tag ${k}">${k === "Pruefen" ? "Prüfen" : k === "Luecke" ? "Lücke" : k}</span>
-         <p>${linkIds(esc(c.text))}</p></div>`).join("")}
-    </div>`).join("") : deaths ? "" : `<div class="sec"><p class="legend">Nichts gefunden - alle Angaben des Berichts passen zusammen.</p></div>`);
+      ${open.filter(c => c.kind === k).map(c => {
+        const pair = pairOf(c.text);
+        return `<div class="check"><span class="tag ${k}">${KIND_LABEL(k)}</span>
+         <div><p>${linkIds(esc(c.text))}</p>${pair ? `
+           <button class="btn" style="margin:6px 6px 0 0" data-pair="${pair.join(" ")}">Beide im Stammbaum zeigen</button>
+           ${EDIT ? askButton("paar|" + pairKey(pair), "Passt so – zwei verschiedene Personen",
+                              `data-pair-ok="${pairKey(pair)}"`, ASK_TEXT.paar)
+                  + `<button class="btn" style="margin:6px 6px 0 0" data-merge="${pair.join(" ")}">Zusammenführen …</button>` : ""}` : ""}</div></div>`;
+      }).join("")}
+    </div>`).join("")
+    : deaths || confirmed || merged ? ""
+    : `<div class="sec"><p class="legend">Nichts gefunden - alle Angaben des Berichts passen zusammen.</p></div>`)
+    + confirmed + merged;
 
+  // answering a question redraws the report - it must not jump back to the top
+  const was = document.querySelector('#scrim [aria-label="Prüfbericht"] .sheet-body');
+  const scroll = was ? was.scrollTop : 0;
   closeSheet();
   document.body.insertAdjacentHTML("beforeend", `<div class="scrim" id="scrim">
     <div class="sheet" role="dialog" aria-modal="true" aria-label="Prüfbericht">
@@ -5193,11 +5363,460 @@ function openCheckSheet(){
     </div>
   </div>`);
   document.body.style.overflow = "hidden";
+  if(scroll) document.querySelector('#scrim [aria-label="Prüfbericht"] .sheet-body').scrollTop = scroll;
 }
+/* Every person the report names carries their entry number, and the number
+   opens their sheet.  Older findings wrote "Person 12" instead of "#12", and a
+   tree keeps its findings from the day it was read in, so both are caught. */
 function linkIds(s){
-  return s.replace(/#(\d+)/g, (m, id) => BY_ID.has(+id)
-    ? `<button class="plink" style="padding:1px 7px;font-size:14px" data-open="${id}">#${id}</button>` : m);
+  return s.replace(/(#|\b(?:Person|Elternteil) )(\d+)\b/g, (m, lead, id) => BY_ID.has(+id)
+    ? (lead === "#" ? "" : lead)
+      + `<button class="plink" style="padding:1px 7px;font-size:14px" data-open="${id}">#${id}</button>`
+    : m);
 }
+
+/* The two entries a finding suspects of being one person, or null.  "X ist
+   mit A und mit B verheiratet" is about A and B, not about X. */
+function pairOf(text, evenGone){
+  if(!/dieselbe Person|doppelt erfasst|gleicher Name und Jahrgang/.test(text)) return null;
+  const ids = [...text.matchAll(/#(\d+)/g)].map(m => +m[1]).filter(id => evenGone || BY_ID.has(id));
+  const pair = /verheiratet/.test(text) ? ids.slice(1, 3) : ids.slice(0, 2);
+  return pair.length === 2 && pair[0] !== pair[1] ? pair : null;
+}
+
+/* Both entries pointed out in the tree exactly as it stands.  Nothing is laid
+   out again and nothing moves: somebody deciding whether two entries are one
+   person has to see them where they really are - two boxes pulled next to each
+   other would claim something the tree does not.  A marked box off screen gets
+   an arrow at the edge of the picture; one this view does not draw at all is
+   named in the bar, with the one click that shows the whole tree. */
+function showPair(ids){
+  ids = ids.filter(id => BY_ID.has(id));
+  if(ids.length < 2) return;
+  closeSheet();
+  if(document.getElementById("scrim")) return;       // unsaved form: stays open
+  spotlight = ids;
+  markSpot();
+}
+
+/* Marks on the boxes already drawn - not worth laying three hundred people out. */
+function markSpot(){
+  document.querySelectorAll("#plane .box").forEach(b =>
+    b.classList.toggle("spot", spotlight.includes(+b.dataset.person)));
+  renderSpotbar();
+  updateSpotArrows();
+}
+
+/* Only on request: the view that draws everybody.  The centre stays; the
+   linked families join only when one of the marked would be missing without. */
+function showWholeTree(){
+  setMode("alle");
+  if(centre !== null && !spotlight.every(id => stageSet().has(id))){
+    showLinked = true;
+    const box = document.getElementById("showLinked");
+    if(box) box.checked = true;
+  }
+  renderTree();
+}
+
+/* An arrow on the edge of the picture for every marked box outside it, on the
+   line from the middle of the picture towards the box.  Redrawn on every pan
+   and zoom, from `paint`. */
+function updateSpotArrows(){
+  const layer = document.getElementById("spotarrows");
+  if(!layer) return;
+  const stage = document.getElementById("stage");
+  const W = stage.clientWidth, H = stage.clientHeight, pad = 34;
+  const arrows = [], placed = [];
+  for(const id of spotlight){
+    const box = document.querySelector('#plane .box[data-person="' + id + '"]');
+    if(!box) continue;
+    const x0 = parseFloat(box.style.left) * view.scale + view.x;
+    const y0 = parseFloat(box.style.top) * view.scale + view.y;
+    const x1 = x0 + NW * view.scale, y1 = y0 + NH * view.scale;
+    if(x1 > RAIL_W && x0 < W && y1 > 0 && y0 < H) continue;          // in sight
+    const mx = (RAIL_W + W) / 2, my = H / 2;
+    const dx = (x0 + x1) / 2 - mx, dy = (y0 + y1) / 2 - my;
+    const tx = dx ? ((dx > 0 ? W - pad : RAIL_W + pad) - mx) / dx : Infinity;
+    const ty = dy ? ((dy > 0 ? H - pad : pad) - my) / dy : Infinity;
+    const t = Math.min(tx, ty);
+    const angle = Math.round(Math.atan2(dy, dx) * 180 / Math.PI);
+    // two boxes in the same direction would put one arrow on top of the other:
+    // slide along the edge until it stands on its own
+    let ax = mx + dx * t, ay = my + dy * t;
+    const onSide = tx <= ty;
+    while(placed.some(p => Math.abs(p[0] - ax) < 70 && Math.abs(p[1] - ay) < 36)){
+      if(onSide) ay = ay + 40 > H - pad ? ay - 80 : ay + 40;
+      else ax = ax + 80 > W - pad ? ax - 160 : ax + 80;
+    }
+    placed.push([ax, ay]);
+    arrows.push(`<button class="spotarrow" data-spot-go="${id}"
+        style="left:${Math.round(ax)}px;top:${Math.round(ay)}px"
+        title="Dorthin: #${id} ${esc(BY_ID.get(id).name || "")}">
+        <span class="pfeil" style="transform:rotate(${angle}deg)">➜</span><b>#${id}</b></button>`);
+  }
+  layer.innerHTML = arrows.join("");
+}
+
+/* Moves the picture until the box sits in the middle.  Moves only: the zoom
+   and the layout stay as they are. */
+function goToSpot(id){
+  const box = document.querySelector('#plane .box[data-person="' + id + '"]');
+  if(!box) return;
+  const stage = document.getElementById("stage");
+  view.x = RAIL_W + (stage.clientWidth - RAIL_W) / 2 - (parseFloat(box.style.left) + NW / 2) * view.scale;
+  view.y = stage.clientHeight / 2 - (parseFloat(box.style.top) + NH / 2) * view.scale;
+  applyScale();
+  box.classList.remove("spot-blink");
+  void box.offsetWidth;                       // restart the blink
+  box.classList.add("spot-blink");
+}
+
+function renderSpotbar(){
+  const bar = document.getElementById("spotbar");
+  if(!bar) return;
+  bar.hidden = !spotlight.length;
+  if(!spotlight.length){ bar.innerHTML = ""; return; }
+  const drawn = id => document.querySelector('#plane .box[data-person="' + id + '"]');
+  const missing = spotlight.filter(id => !drawn(id));
+  bar.innerHTML = `<span>Doppelt erfasst?</span>`
+    + spotlight.map(id => `<button class="plink" style="padding:1px 7px;font-size:14px" data-open="${id}"
+        title="Personenblatt öffnen">#${id} ${esc(BY_ID.get(id).name || "")}</button>`).join("<span>und</span>")
+    + spotlight.filter(id => drawn(id)).map(id =>
+        `<button class="btn" data-spot-go="${id}" title="Bild dorthin schieben">Zu #${id}</button>`).join("")
+    + (missing.length ? `<span class="spot-todo-text">${missing.map(id => "#" + id).join(" und ")}
+        ${missing.length > 1 ? "sind" : "ist"} in dieser Ansicht nicht zu sehen</span>
+        <button class="btn spot-todo" data-spot="alle">⚠ Ganzen Baum zeigen</button>` : "")
+    + (EDIT ? `<button class="btn" data-merge="${spotlight.join(" ")}">Zusammenführen …</button>` : "")
+    + `<button class="btn" data-spot="report">Prüfbericht</button>`
+    + `<button class="btn iconbtn" data-spot="off" aria-label="Markierung beenden" title="Markierung beenden">×</button>`;
+}
+
+document.addEventListener("click", e => {
+  const pair = e.target.closest("[data-pair]");
+  if(pair){ showPair(pair.dataset.pair.split(" ").map(Number)); return; }
+  const go = e.target.closest("[data-spot-go]");
+  if(go){ goToSpot(+go.dataset.spotGo); return; }
+  const spot = e.target.closest("[data-spot]");
+  if(!spot) return;
+  if(spot.dataset.spot === "alle") showWholeTree();
+  else if(spot.dataset.spot === "report") openCheckSheet();
+  else { spotlight = []; markSpot(); }
+});
+
+/* ==================================================== two entries made one
+   Only ever by hand.  The page shows both records field by field, every
+   disagreement has to be answered, and the merge takes a second click.  The
+   work itself happens in zusammenfuehren.py; what was done is kept in the
+   Papierkorb for 60 days and listed at the foot of the Prüfbericht, where it can
+   be taken back. */
+const MERGE_FIELDS = (EDIT && EDIT.zusammenfuehrenFelder) || [];
+let mergeState = null;          // {keep, drop, wahl, ask}
+
+const emptyVal = v => v === null || v === undefined || v === ""
+  || (Array.isArray(v) && !v.length)
+  || (typeof v === "object" && !Array.isArray(v) && !Object.keys(v).length);
+const stableJSON = v => JSON.stringify(v, (k, x) => x && typeof x === "object" && !Array.isArray(x)
+  ? Object.keys(x).sort().reduce((o, key) => (o[key] = x[key], o), {}) : x);
+const sameVal = (a, b) => (emptyVal(a) && emptyVal(b)) || stableJSON(a) === stableJSON(b);
+const fieldTitle = key => (MERGE_FIELDS.find(f => f.feld === key) || {}).titel || key;
+
+/* Mirrors `hindernis` in zusammenfuehren.py, so the page can say it at once. */
+function mergeBlock(keep, drop){
+  const A = BY_ID.get(keep), B = BY_ID.get(drop);
+  if((A.parents || []).includes(drop) || (B.parents || []).includes(keep))
+    return "#" + keep + " und #" + drop + " sind als Elternteil und Kind verbunden – das kann nicht dieselbe Person sein.";
+  if(B.link) return A.link
+    ? "Beide Einträge stehen auch in einem anderen Stammbaum. Zusammenführen würde diese Verknüpfungen zerreißen."
+    : "#" + drop + " steht auch in einem anderen Stammbaum und muss deshalb die Nummer sein, die bleibt – „Andere Nummer behalten“ tauscht das.";
+  return "";
+}
+
+function mergeValue(f, v){
+  if(emptyVal(v)) return `<span class="mg-empty">—</span>`;
+  if(f.art === "verknuepfung")
+    return v.map(id => esc("#" + id + " " + ((BY_ID.get(id) || {}).name || ""))).join("<br>");
+  if(f.art === "liste"){
+    const one = x => typeof x !== "object" ? String(x)
+      : x.kind ? [x.kind, x.year].filter(Boolean).join(" ") : x.title || x.file || x.place || "";
+    return v.length + (v.length === 1 ? " Eintrag" : " Einträge")
+      + `<small>${esc(v.slice(0, 3).map(one).filter(Boolean).join(" · "))}${v.length > 3 ? " …" : ""}</small>`;
+  }
+  if(f.feld === "sex") return v === "m" ? "männlich" : v === "w" ? "weiblich" : esc(String(v));
+  if(["birth", "death", "burial"].includes(f.feld)) return esc(fullEvent(v) || v.note || stableJSON(v));
+  if(f.feld === "contact") return esc(Object.values(v).filter(Boolean).join(" · "));
+  if(typeof v === "object") return esc(stableJSON(v));
+  return f.art === "text" ? `<div class="mg-text">${esc(String(v))}</div>` : esc(String(v));
+}
+
+function openMerge(ids){
+  const [x, y] = ids.map(Number);
+  if(!EDIT || !BY_ID.has(x) || !BY_ID.has(y) || x === y) return;
+  // the lower number stays - unless only the other one is linked elsewhere
+  let keep = Math.min(x, y), drop = Math.max(x, y);
+  if(BY_ID.get(drop).link && !BY_ID.get(keep).link) [keep, drop] = [drop, keep];
+  mergeState = {keep, drop, wahl: {}, ask: false};
+  renderMerge();
+}
+
+function renderMerge(){
+  const {keep, drop, wahl} = mergeState;
+  const A = BY_ID.get(keep), B = BY_ID.get(drop);
+  const block = mergeBlock(keep, drop);
+  let open = 0;
+  const rows = MERGE_FIELDS.filter(f => !(emptyVal(A[f.feld]) && emptyVal(B[f.feld]))).map(f => {
+    const va = A[f.feld], vb = B[f.feld];
+    let result, conflict = false;
+    if(f.art === "einzeln" || f.art === "text"){
+      if(sameVal(va, vb)) result = `<span class="mg-same">gleich</span>`;
+      else if(emptyVal(vb)) result = `<span class="mg-take">von #${keep}</span>`;
+      else if(emptyVal(va)) result = `<span class="mg-take">von #${drop} übernommen</span>`;
+      else {
+        conflict = true;
+        const w = wahl[f.feld];
+        if(!w) open++;
+        const opt = (val, label) => `<label class="mg-opt${w === val ? " on" : ""}">
+          <input type="radio" name="mg-${f.feld}" data-merge-wahl="${f.feld}" value="${val}"${w === val ? " checked" : ""}> ${label}</label>`;
+        result = `<div class="mg-choice${w ? "" : " open"}">${opt("behalten", "#" + keep)}${opt("entfernt", "#" + drop)}${
+          f.art === "text" ? opt("beide", "beide behalten") : ""}</div>`;
+      }
+    } else {
+      result = `<span class="mg-take">${emptyVal(va) || emptyVal(vb) ? "übernommen" : "beide zusammengelegt"}</span>`;
+    }
+    return `<tr${conflict ? ` class="mg-conflict"` : ""}><th>${esc(f.titel)}</th>
+      <td>${mergeValue(f, va)}</td><td>${mergeValue(f, vb)}</td><td>${result}</td></tr>`;
+  }).join("");
+  const relatives = DATA.people.filter(q => q.id !== keep && q.id !== drop
+    && ((q.parents || []).includes(drop) || (q.spouses || []).includes(drop)));
+  const docs = (B.documents || []).length;
+
+  const was = document.querySelector('#scrim [aria-label="Zusammenführen"] .sheet-body');
+  const scroll = was ? was.scrollTop : 0;
+  closeSheet();
+  if(document.getElementById("scrim")) return;
+  document.body.insertAdjacentHTML("beforeend", `<div class="scrim" id="scrim">
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Zusammenführen">
+      <div class="sheet-head" style="grid-template-columns:minmax(0,1fr) auto">
+        <div>
+          <div class="kicker">Personen zusammenführen</div>
+          <h2>#${keep} und #${drop}</h2>
+          <p class="legend" style="margin-top:10px;max-width:60ch">
+            Nur zusammenführen, wenn beide Einträge wirklich derselbe Mensch sind. Gleiche Angaben
+            werden übernommen, Listen zusammengelegt – wo sich die Einträge widersprechen,
+            entscheidest du. Danach steht alles bei der Nummer, die bleibt. 60 Tage lang lässt
+            es sich im Prüfbericht unter „Zusammengeführt“ rückgängig machen.</p>
+          <p style="margin-top:10px">Bleibt: <b>#${keep} ${esc(A.name || "")}</b> ·
+            verschwindet: <b>#${drop} ${esc(B.name || "")}</b>
+            <button class="btn" style="margin-left:8px" data-merge-swap="1">Andere Nummer behalten</button></p>
+        </div>
+        <button class="closer" data-close="1" aria-label="Schließen">×</button>
+      </div>
+      <div class="sheet-body">
+        ${block ? `<div class="askbox"><p>${esc(block)}</p></div>` : ""}
+        <div class="sec"><h3>Angaben</h3><div class="mg-wrap"><table class="mg">
+          <thead><tr><th></th><th>#${keep} bleibt</th><th>#${drop} verschwindet</th><th>Ergebnis</th></tr></thead>
+          <tbody>${rows}</tbody></table></div></div>
+        <div class="sec"><h3>Verwandte, die umgehängt werden</h3>
+          ${relatives.length ? `<p class="legend">Diese Einträge zeigen auf #${drop} und zeigen danach auf #${keep}:</p>
+            <ul class="mg-list">${relatives.map(q => `<li>#${q.id} ${esc(q.name || "")} – ${
+              (q.parents || []).includes(drop) ? "Kind" : "Partner/in"}</li>`).join("")}</ul>`
+            : `<p class="legend">Keine.</p>`}</div>
+        ${docs ? `<div class="sec"><h3>Unterlagen</h3><p class="legend">${docs} Datei${docs > 1 ? "en wandern" : " wandert"}
+          in den Ordner von #${keep}.</p></div>` : ""}
+        <div class="sec">${block ? ""
+          : open ? `<p class="hintline">Noch ${open} Entscheidung${open > 1 ? "en" : ""} offen – rot umrandet.</p>
+                    <button class="btn" disabled>Zusammenführen …</button>`
+          : mergeState.ask ? `<div class="askbox"><p>Wirklich zusammenführen? #${drop} verschwindet, alles steht
+                danach bei #${keep}. Rückgängig geht 60 Tage lang im Prüfbericht unter „Zusammengeführt“.</p>
+                <button class="btn yes" style="margin:6px 6px 0 0" data-merge-go="1">Ja, zusammenführen</button>
+                <button class="btn" style="margin:6px 6px 0 0" data-merge-ask="0">Abbrechen</button></div>`
+          : `<button class="btn primary" data-merge-ask="1">Zusammenführen …</button>`}</div>
+      </div>
+    </div>
+  </div>`);
+  document.body.style.overflow = "hidden";
+  if(scroll) document.querySelector('#scrim [aria-label="Zusammenführen"] .sheet-body').scrollTop = scroll;
+}
+
+/* The way in from a person's sheet: find the other entry by number or name. */
+function openMergePick(id){
+  const p = BY_ID.get(id);
+  if(!p || !EDIT) return;
+  closeSheet();
+  if(document.getElementById("scrim")) return;
+  document.body.insertAdjacentHTML("beforeend", `<div class="scrim" id="scrim">
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Zusammenführen mit">
+      <div class="sheet-head" style="grid-template-columns:minmax(0,1fr) auto">
+        <div>
+          <div class="kicker">Personen zusammenführen</div>
+          <h2>#${id} ${esc(p.name || "")} zusammenführen mit …</h2>
+          <p class="legend" style="margin-top:10px;max-width:56ch">Nummer oder Name des zweiten Eintrags
+            derselben Person. Danach kommt die Prüfseite – zusammengeführt wird erst nach deiner Bestätigung.</p>
+          <input class="mg-search" id="mergeQuery" type="search" placeholder="Nummer oder Name"
+            autocomplete="off" data-merge-query="${id}">
+        </div>
+        <button class="closer" data-close="1" aria-label="Schließen">×</button>
+      </div>
+      <div class="sheet-body"><div id="mergeHits"></div></div>
+    </div>
+  </div>`);
+  document.body.style.overflow = "hidden";
+  document.getElementById("mergeQuery").focus();
+  renderMergeHits(id, "");
+}
+
+function renderMergeHits(id, query){
+  const p = BY_ID.get(id);
+  const text = query.trim().toLowerCase().replace(/^#/, "");
+  let hits = DATA.people.filter(x => x.id !== id && (text
+    ? String(x.id) === text || (x.name || "").toLowerCase().includes(text)
+    : p.surname && x.surname === p.surname));
+  hits.sort((a, b) => (String(b.id) === text) - (String(a.id) === text)
+    || (a.name || "").localeCompare(b.name || "") || a.id - b.id);
+  hits = hits.slice(0, 40);
+  document.getElementById("mergeHits").innerHTML = (!text && hits.length
+      ? `<p class="legend" style="margin-bottom:8px">Gleicher Nachname:</p>` : "")
+    + (hits.length ? hits.map(x => `<button class="plink mg-hit" data-merge="${id} ${x.id}">#${x.id} ${esc(x.name || "")}<small>${
+        esc(lifespan(x) || "")}</small></button>`).join("")
+      : `<p class="legend">${text ? "Niemand gefunden." : "Nummer oder Namen eintippen."}</p>`);
+}
+
+/* ---- the Papierkorb at the foot of the Prüfbericht -------------------------- */
+var PAPIERKORB = (EDIT && EDIT.papierkorb) || {eintraege: []};
+
+function daysLeft(e){
+  const day = Date.parse(String(e.am || "").slice(0, 10));
+  if(isNaN(day)) return 0;
+  const today = Date.parse(new Date().toISOString().slice(0, 10));
+  return 60 - Math.round((today - day) / 86400000);
+}
+
+const mergedAway = pair => PAPIERKORB.eintraege.some(e =>
+  !e.rueckgaengig && pairKey([e.behalten, e.entfernt]) === pairKey(pair));
+
+/* What changed on the kept record since the merge - lost if it is taken back. */
+function changedSinceMerge(e){
+  const now = BY_ID.get(e.behalten), then = (e.nachher || {}).behalten;
+  if(!now || !then) return [];
+  return MERGE_FIELDS.filter(f => !sameVal(now[f.feld], then[f.feld])).map(f => f.titel);
+}
+
+function mergedHTML(){
+  if(!EDIT || !PAPIERKORB.eintraege.length) return "";
+  const said = (v, e, key) => {
+    const f = MERGE_FIELDS.find(x => x.feld === key) || {feld: key, art: "einzeln"};
+    const other = v === "behalten" ? e.vorher.entfernt[key] : e.vorher.behalten[key];
+    return {
+      gleich: "bei beiden gleich",
+      nur_behalten: "nur bei #" + e.behalten + " – bleibt",
+      nur_entfernt: "nur bei #" + e.entfernt + " – übernommen",
+      vereint: "beide zusammengelegt",
+      beide: "beide Texte behalten",
+      behalten: "Widerspruch – #" + e.behalten + " gewählt, verworfen: ",
+      entfernt: "Widerspruch – #" + e.entfernt + " gewählt, verworfen: ",
+    }[v] + (v === "behalten" || v === "entfernt" ? mergeValue(f, other).replace(/<[^>]+>/g, " ") : "");
+  };
+  const trail = s => ({parents: "Elternteil umgehängt", spouses: "Ehe umgehängt",
+    parent_kind: "Art der Elternschaft", spouse_kind: "Art der Ehe",
+    events_with: s[1] + " Lebenslauf-Eintrag/Einträge"})[s[0]] || s[0];
+  const rows = PAPIERKORB.eintraege.slice().reverse().map(e => {
+    const done = e.rueckgaengig;
+    const left = Math.max(0, daysLeft(e));
+    const since = done ? [] : changedSinceMerge(e);
+    const undoText = "Wirklich zurücknehmen? #" + e.entfernt + " kommt als eigener Eintrag zurück, #"
+      + e.behalten + " bekommt wieder die Angaben von vorher."
+      + (since.length ? " Seit dem Zusammenführen an #" + e.behalten + " geändert – das geht dabei verloren: "
+        + since.join(", ") + "." : "");
+    return `<div class="check"><span class="tag Struktur">${done ? "Zurück" : "Zusammen"}</span><div>
+      <p>${esc(e.namen[1] || "")} (#${e.entfernt}) ${done ? "war" : "ist"} in ${linkIds(esc((e.namen[0] || "") + " (#" + e.behalten + ")"))}
+        zusammengeführt${deDate(String(e.am).slice(0, 10))}.</p>
+      ${done ? `<p class="hintline">Rückgängig gemacht${deDate(String(done.am).slice(0, 10))} – der Eintrag ist wieder
+          ${linkIds("#" + done.nummer)}.${(done.hinweise || []).map(h => " " + esc(h)).join("")}</p>`
+        : `<p class="hintline">Noch ${left} Tag${left === 1 ? "" : "e"} im Papierkorb.</p>`}
+      <details style="margin-top:6px"><summary class="hintline">Was dabei geschah</summary>
+        <ul class="mg-list">${Object.entries(e.felder || {}).map(([k, v]) =>
+          `<li><b>${esc(fieldTitle(k))}</b> – ${esc(said(v, e, k))}</li>`).join("")}</ul>
+        ${Object.keys(e.verwandte || {}).length ? `<p class="legend" style="margin-top:8px">Umgehängte Verwandte</p>
+          <ul class="mg-list">${Object.entries(e.verwandte).map(([pid, r]) =>
+            `<li>${linkIds(esc((r.name || "") + " (#" + pid + ")"))} – ${esc(r.spuren.map(trail).join(", "))}</li>`).join("")}</ul>` : ""}
+        ${(e.dateien || []).length ? `<p class="legend" style="margin-top:8px">Verschobene Unterlagen</p>
+          <ul class="mg-list">${e.dateien.map(([von, nach]) => `<li>${esc(von)} → ${esc(nach)}</li>`).join("")}</ul>` : ""}
+      </details>
+      ${done ? "" : askButton("merge-undo|" + e.id, "rückgängig", `data-merge-undo="${esc(e.id)}"`, esc(undoText))}
+    </div></div>`;
+  });
+  return `<div class="sec" id="zusammengefuehrt"><h3>Zusammengeführt · 60 Tage im Papierkorb</h3>${rows.join("")}</div>`;
+}
+
+document.addEventListener("click", async e => {
+  const start = e.target.closest("[data-merge]");
+  if(start){ openMerge(start.dataset.merge.split(" ")); return; }
+  const pick = e.target.closest("[data-merge-pick]");
+  if(pick){ openMergePick(+pick.dataset.mergePick); return; }
+  const undo = e.target.closest("[data-merge-undo]");
+  if(undo && EDIT){
+    undo.disabled = true;
+    try{
+      await api("/api/zusammenfuehren-rueckgaengig?k=" + encodeURIComponent(EDIT.token), {id: undo.dataset.mergeUndo});
+      try{ sessionStorage.setItem("stammbaum:nachLaden", "rueckgaengig"); }catch(_){}
+      reloadSaying("Rückgängig gemacht – lädt neu …");
+    }catch(err){
+      say("Nicht rückgängig gemacht – " + err.message, true);
+      undo.disabled = false;
+    }
+    return;
+  }
+  if(!mergeState || !document.querySelector('#scrim [aria-label="Zusammenführen"]')) return;
+  if(e.target.closest("[data-merge-swap]")){
+    const flip = {behalten: "entfernt", entfernt: "behalten", beide: "beide"};
+    mergeState = {keep: mergeState.drop, drop: mergeState.keep, ask: false,
+      wahl: Object.fromEntries(Object.entries(mergeState.wahl).map(([k, v]) => [k, flip[v]]))};
+    renderMerge();
+    return;
+  }
+  const ask = e.target.closest("[data-merge-ask]");
+  if(ask){ mergeState.ask = ask.dataset.mergeAsk === "1"; renderMerge(); return; }
+  const go = e.target.closest("[data-merge-go]");
+  if(!go) return;
+  go.disabled = true;
+  try{
+    await api("/api/zusammenfuehren?k=" + encodeURIComponent(EDIT.token),
+              {behalten: mergeState.keep, entfernt: mergeState.drop, wahl: mergeState.wahl});
+    try{ sessionStorage.setItem("stammbaum:nachLaden", "zusammengefuehrt"); }catch(_){}
+    reloadSaying("Zusammengeführt – lädt neu …");
+  }catch(err){
+    say("Nicht zusammengeführt – " + err.message, true);
+    go.disabled = false;
+  }
+});
+document.addEventListener("change", e => {
+  const r = e.target.closest("[data-merge-wahl]");
+  if(!r || !mergeState) return;
+  mergeState.wahl[r.dataset.mergeWahl] = r.value;
+  mergeState.ask = false;
+  renderMerge();
+});
+document.addEventListener("input", e => {
+  const q = e.target.closest("[data-merge-query]");
+  if(q) renderMergeHits(+q.dataset.mergeQuery, q.value);
+});
+
+/* After the reload a merge or an undo ends in: straight to what happened. */
+(function afterMergeReload(){
+  let flag = "";
+  try{
+    flag = sessionStorage.getItem("stammbaum:nachLaden") || "";
+    sessionStorage.removeItem("stammbaum:nachLaden");
+  }catch(_){}
+  if(!flag || !EDIT) return;
+  setTimeout(() => {
+    openCheckSheet();
+    const sec = document.getElementById("zusammengefuehrt");
+    if(sec) sec.scrollIntoView({block: "start"});
+    say(flag === "rueckgaengig" ? "Rückgängig gemacht – unten im Prüfbericht steht, was dabei geschah."
+                                : "Zusammengeführt – unten im Prüfbericht steht, was dabei geschah.");
+  }, 400);
+})();
 const themeBtn = document.getElementById("themeBtn");
 themeBtn.addEventListener("click", () => {
   const dark = document.documentElement.getAttribute("data-theme") === "abend";
