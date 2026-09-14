@@ -252,6 +252,35 @@ class TestEheUndPartnerschaft(unittest.TestCase):
         self.assertIn(".wires path.marriage.partnered{stroke-dasharray", self.s)
 
 
+class TestDasBildWirdGross(unittest.TestCase):
+    """A click on the portrait shows the picture itself, large, over the sheet."""
+
+    def setUp(self):
+        self.s = vorlage()
+
+    def test_das_bild_auf_dem_blatt_ist_ein_knopf(self):
+        self.assertIn('data-zoom="${p.id}"', rumpf(self.s, "sheetHTML"),
+                      "das Portrait auf dem Personenblatt ist nicht anklickbar")
+
+    def test_die_grossansicht_zeigt_dieselbe_quelle(self):
+        self.assertIn("const src = PHOTOS[id];", rumpf(self.s, "openZoom"))
+
+    def test_die_grossansicht_borgt_sich_keinen_namen(self):
+        """`.zoom` is the diagram's zoom buttons.  Sharing the name once laid a
+        dark full-screen layer with the buttons spread across it over the tree."""
+        self.assertEqual(self.s.count(".zoom{"), 1,
+                         "die Grossansicht benutzt wieder die Klasse der Zoomknoepfe")
+        self.assertNotIn('getElementById("zoom")', self.s)
+
+    def test_escape_schliesst_erst_das_bild(self):
+        """Escape and the click put the picture away, not the sheet under it -
+        so both answer in the capture phase, before the sheet's own handlers."""
+        stelle = self.s[self.s.index("function closeZoom("):]
+        stelle = stelle[:stelle.index('document.addEventListener("click", e => {\n  /* The unsaved')]
+        self.assertEqual(stelle.count("}, true);"), 2)
+        self.assertEqual(stelle.count("stopImmediatePropagation"), 3)
+
+
 class TestDerAusgangLaeuftMit(unittest.TestCase):
 
     def test_der_kopf_klebt_wie_die_speicherleiste(self):

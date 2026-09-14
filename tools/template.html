@@ -544,6 +544,16 @@ html[data-theme="abend"] .scrim{background:rgba(0,0,0,.7)}
 .scrim.ask .sheet-head{border-bottom:0;padding-bottom:8px}
 .sheet-head .portrait{width:112px;height:142px;object-fit:cover;border-radius:1px;box-shadow:0 0 0 1px var(--rule-2)}
 .sheet-head .portrait.mono{display:grid;place-items:center;font-family:var(--sans);font-size:30px;color:var(--ink-3);background:var(--paper-2)}
+/* The portrait on the sheet opens the picture itself, full size, over the sheet. */
+.portrait-zoom{padding:0;border:0;background:none;cursor:zoom-in;line-height:0;border-radius:1px}
+.portrait-zoom:focus-visible{outline:2px solid var(--ink-3);outline-offset:3px}
+/* Not `.zoom`: that name already belongs to the diagram's zoom buttons. */
+.photo-zoom{
+  position:fixed;inset:0;z-index:220;background:rgba(12,10,7,.88);
+  display:grid;place-items:center;padding:28px;cursor:zoom-out;animation:fade .15s ease;
+}
+.photo-zoom img{max-width:100%;max-height:calc(100vh - 56px);object-fit:contain;box-shadow:0 30px 80px -20px rgba(0,0,0,.7)}
+.photo-zoom .closer{position:fixed;top:14px;right:18px;color:#fff;background:rgba(0,0,0,.35)}
 .sheet h2{margin:0;font-size:30px;font-weight:500;line-height:1.08;letter-spacing:-.01em}
 .sheet .kicker{font-family:var(--sans);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
 .rel-badge{
@@ -2544,7 +2554,9 @@ function sheetHTML(p){
   return `<div class="scrim" id="scrim">
     <div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(p.name)}">
       <div class="sheet-head">
-        ${avatarHTML(p, "portrait")}
+        ${PHOTOS[p.id]
+          ? `<button type="button" class="portrait-zoom" data-zoom="${p.id}" aria-label="Bild groß anzeigen">${avatarHTML(p, "portrait")}</button>`
+          : avatarHTML(p, "portrait")}
         <div>
           <div class="kicker">Personenblatt · Nr. ${p.id}</div>
           <h2>${esc(p.name)}</h2>
@@ -4905,6 +4917,50 @@ function makePerson(role, name){
 }
 
 /* ------------------------------------------------------------------ wiring */
+/* The picture, large.  It lies over the sheet rather than replacing it, so any
+   click or Escape only puts the picture away and the sheet is still there.
+   Both listeners run in the capture phase: nothing underneath may act on a
+   click that was only meant to close the picture. */
+function openZoom(id){
+  const src = PHOTOS[id];
+  if(!src) return;
+  closeZoom();
+  const p = BY_ID.get(id);
+  const layer = document.createElement("div");
+  layer.className = "photo-zoom";
+  layer.id = "photoZoom";
+  layer.setAttribute("role", "dialog");
+  layer.setAttribute("aria-modal", "true");
+  layer.setAttribute("aria-label", p ? p.name : "Bild");
+  layer.innerHTML = `<img src="${src}" alt="${esc(p ? p.name : "")}">
+    <button type="button" class="closer" aria-label="Bild schließen">×</button>`;
+  document.body.appendChild(layer);
+  layer.querySelector(".closer").focus();
+}
+function closeZoom(){
+  const layer = document.getElementById("photoZoom");
+  if(!layer) return false;
+  layer.remove();
+  const back = document.querySelector("[data-zoom]");
+  if(back) back.focus();
+  return true;
+}
+document.addEventListener("click", e => {
+  if(document.getElementById("photoZoom")){
+    e.preventDefault(); e.stopImmediatePropagation();
+    closeZoom();
+    return;
+  }
+  const zoom = e.target.closest("[data-zoom]");
+  if(zoom){ e.stopImmediatePropagation(); openZoom(+zoom.dataset.zoom); }
+}, true);
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape" && document.getElementById("photoZoom")){
+    e.preventDefault(); e.stopImmediatePropagation();
+    closeZoom();
+  }
+}, true);
+
 document.addEventListener("click", e => {
   /* The unsaved-work question sits on top of everything and answers first: the
      form is still open underneath it, and a click that fell through to the
