@@ -413,6 +413,10 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
 .modes .btn:first-child{border-radius:2px 0 0 2px}
 .modes .btn:last-child{border-radius:0 2px 2px 0}
 .modes .btn[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+/* Locked, the tree holds still: a box opens the sheet and moves nothing. */
+.lockbtn{margin-left:6px;white-space:nowrap}
+.lockbtn[aria-pressed="true"]{background:var(--accent);color:var(--paper);border-color:var(--accent)}
+.plane.locked .box .pick{cursor:help}
 .box .info{
   position:absolute;top:5px;right:5px;
   border:1px solid var(--rule-2);background:var(--paper-2);color:var(--ink-3);
@@ -542,8 +546,17 @@ html[data-theme="abend"] .scrim{background:rgba(0,0,0,.7)}
    which is itself a scrim at 200. */
 .scrim.ask{z-index:210;place-items:center}
 .scrim.ask .sheet-head{border-bottom:0;padding-bottom:8px}
-.sheet-head .portrait{width:112px;height:142px;object-fit:cover;border-radius:1px;box-shadow:0 0 0 1px var(--rule-2)}
-.sheet-head .portrait.mono{display:grid;place-items:center;font-family:var(--sans);font-size:30px;color:var(--ink-3);background:var(--paper-2)}
+/* Only the title rides along.  Everything a sheet says about itself - the
+   explanation, the portrait, the buttons for the person - scrolls away with
+   the text, or a long head covered half of a short window for good. */
+.sheet-intro{padding:16px 0 4px}
+.sheet-intro > p:first-child,.sheet-intro > .node-meta:first-child{margin-top:0 !important}
+.person-intro{
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:20px;align-items:start;
+  padding:20px 0 18px;border-bottom:1px solid var(--rule);
+}
+.person-intro .portrait{width:112px;height:142px;object-fit:cover;border-radius:1px;box-shadow:0 0 0 1px var(--rule-2)}
+.person-intro .portrait.mono{display:grid;place-items:center;font-family:var(--sans);font-size:30px;color:var(--ink-3);background:var(--paper-2)}
 /* The portrait on the sheet opens the picture itself, full size, over the sheet. */
 .portrait-zoom{padding:0;border:0;background:none;cursor:zoom-in;line-height:0;border-radius:1px}
 .portrait-zoom:focus-visible{outline:2px solid var(--ink-3);outline-offset:3px}
@@ -921,7 +934,7 @@ html[data-edit] .editonly.flex{display:flex !important}
               data-tip="Eine Person anlegen, die im Bericht von 2023 noch fehlt">＋ Person</button>
       <div class="who" id="who"></div>
       <button class="btn helpdot tipped" id="hintDot" aria-label="Bedienung"
-              data-tip="Kasten anklicken = Mittelpunkt · ⓘ = Personenblatt · ziehen verschiebt, Mausrad zoomt">?</button>
+              data-tip="Kasten anklicken = Mittelpunkt (gesperrt: Personenblatt) · ⓘ = Personenblatt · ziehen verschiebt, Mausrad zoomt">?</button>
       <div class="modes" id="designs">
         <button class="btn tipped" data-design="tafel" aria-pressed="true" data-tip="Alle gleich gezeichnet, wie eine gedruckte Ahnentafel">Tafel</button>
         <button class="btn tipped" data-design="sippen" aria-pressed="false" data-tip="Eingeheiratete Familien als eigene Inseln mit Namen">Sippen</button>
@@ -951,6 +964,8 @@ html[data-edit] .editonly.flex{display:flex !important}
           </span>
         </span>
       </div>
+      <button class="btn tipped lockbtn" id="lockBtn" aria-pressed="false"
+              data-tip="Ansicht sperren: ein Klick auf eine Person öffnet ihr Blatt, statt sie zum Mittelpunkt zu machen">🔓 Sperren</button>
       <div class="zoom">
         <button class="btn iconbtn tipped" id="zoomOut" data-tip="Kleiner">−</button>
         <button class="btn iconbtn tipped" id="zoomFit" data-tip="Ganzen Baum einpassen">⤢</button>
@@ -1423,6 +1438,7 @@ const treeTitle = slug => {
    another tree, and which optional degrees the near view reaches.  Both are
    per reader and per browser - they change what is on screen, never the file. */
 let showLinked = false;
+let locked = false;          // the view is locked: a box opens its sheet, the centre stays
 let spotlight = [];          // ids pointed out in the tree from the Prüfbericht
 const nearExtra = {schwiegereltern: true, schwiegergross: false, schwager: false, neffen: false};
 
@@ -2580,14 +2596,20 @@ function sheetHTML(p){
 
   return `<div class="scrim" id="scrim">
     <div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(p.name)}">
-      <div class="sheet-head">
+      <div class="sheet-head" style="grid-template-columns:minmax(0,1fr) auto">
+        <div>
+          <div class="kicker">Personenblatt · Nr. ${p.id}</div>
+          <h2>${esc(p.name)}</h2>
+        </div>
+        <button class="closer" data-close="1" aria-label="Schließen">×</button>
+      </div>
+      <div class="sheet-body">
+      <div class="person-intro">
         ${PHOTOS[p.id]
           ? `<button type="button" class="portrait-zoom" data-zoom="${p.id}" aria-label="Bild groß anzeigen">${avatarHTML(p, "portrait")}</button>`
           : avatarHTML(p, "portrait")}
         <div>
-          <div class="kicker">Personenblatt · Nr. ${p.id}</div>
-          <h2>${esc(p.name)}</h2>
-          <div class="node-meta" style="font-size:14px;margin-top:4px">${esc(lifespan(p) || "Lebensdaten unbekannt")}</div>
+          <div class="node-meta" style="font-size:14px">${esc(lifespan(p) || "Lebensdaten unbekannt")}</div>
           ${centrePerson && p.id !== centre && rel
             ? `<div class="rel-badge">${esc(rel.label)} von ${esc(centrePerson.name.split(" ")[0])}</div>` : ""}
           <div class="centre-actions" style="margin-top:14px">
@@ -2604,7 +2626,6 @@ function sheetHTML(p){
           ${linkNoteHTML(p)}
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:12px">
-          <button class="closer" data-close="1" aria-label="Schließen">×</button>
           <button class="btn editonly" data-edit-person="${p.id}">Bearbeiten</button>
           <!-- Also here, not only one level down in the edit form.  This is
                where it was looked for: the sheet is where you go to ask "what
@@ -2615,7 +2636,7 @@ function sheetHTML(p){
             title="Diese Person ist ein zweites Mal im Baum">Zusammenführen …</button>` : ""}
         </div>
       </div>
-      <div class="sheet-body">${sections.join("")}</div>
+      ${sections.join("")}</div>
     </div>
   </div>`;
 }
@@ -3776,12 +3797,11 @@ async function dropLinked(){
     <div class="sheet" role="dialog" aria-modal="true" aria-label="Person entfernen">
       <div class="sheet-head" style="grid-template-columns:minmax(0,1fr) auto">
         <div><div class="kicker">Entfernen · Nr. ${linkDraft.person}</div>
-          <h2>${esc(p.name || "Ohne Namen")}</h2>
-          <div class="node-meta" style="font-size:14px;margin-top:4px">
-            Aus welchen Stammbäumen soll diese Person raus?</div></div>
+          <h2>${esc(p.name || "Ohne Namen")}</h2></div>
         <button class="closer" data-close="1" aria-label="Schließen">×</button>
       </div>
-      <div class="sheet-body"><div class="sec">
+      <div class="sheet-body"><div class="sheet-intro"><div class="node-meta" style="font-size:14px">
+            Aus welchen Stammbäumen soll diese Person raus?</div></div><div class="sec">
         <div class="stack">${alle.map(t => `<label class="dispose-option"
             style="display:flex;gap:9px;align-items:flex-start;cursor:pointer">
             <input type="checkbox" data-dropbaum="${esc(t.slug)}">
@@ -3920,12 +3940,12 @@ function linkDialogHTML(){
       <div>
         <div class="kicker">Verknüpfen · Nr. ${d.person}</div>
         <h2>${esc(p.name || "Ohne Namen")}</h2>
-        <div class="node-meta" style="font-size:14px;margin-top:4px">
-          Dieselbe Person in zwei Stammbäumen – einmal ändern, überall geändert.</div>
       </div>
       <button class="closer" data-close="1" aria-label="Schließen">×</button>
     </div>
     <div class="sheet-body">
+      <div class="sheet-intro"><div class="node-meta" style="font-size:14px">
+        Dieselbe Person in zwei Stammbäumen – einmal ändern, überall geändert.</div></div>
       ${bereits}
       <div class="sec"><h3>${wo.length ? "In einen weiteren Stammbaum" : "In welchen Stammbaum"}</h3>
         ${others.length ? `<div class="stack">${others.map(t => `<button type="button"
@@ -4058,9 +4078,6 @@ function formHTML(){
       <div>
         <div class="kicker">${isNew ? "Neue Person" : "Steckbrief bearbeiten"} · Nr. ${draft.id}</div>
         <h2 id="editTitle">${esc(shown || "Ohne Namen")}</h2>
-        <div class="node-meta" style="font-size:14px;margin-top:4px">
-          ${isNew ? "Wird erst mit „Speichern“ in den Baum aufgenommen."
-                  : "Änderungen gehen nach data/edits.json – der Bericht bleibt unberührt."}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:12px">
         <button class="closer" data-close="1" aria-label="Schließen">×</button>
@@ -4069,6 +4086,9 @@ function formHTML(){
     </div>
 
     <div class="sheet-body" id="editForm">
+      <div class="sheet-intro"><div class="node-meta" style="font-size:14px">
+        ${isNew ? "Wird erst mit „Speichern“ in den Baum aufgenommen."
+                : "Änderungen gehen nach data/edits.json – der Bericht bleibt unberührt."}</div></div>
       <datalist id="eventkinds">
         ${["Geburt", "Taufe", "Einschulung", "Konfirmation", "Schulabschluss", "Ausbildung",
            "Studium", "Beruf", "Militärdienst", "Umzug", "Verlobung", "Heirat", "Scheidung",
@@ -5020,6 +5040,9 @@ document.addEventListener("click", e => {
   // Clicking a box makes that person the middle without moving the picture:
   // the box stays under the pointer, so its "+" buttons are where the hand
   // already is and the rest of the family regroups around it.
+  // Locked, a box in the tree only opens that person's sheet: the view that was
+  // set up - say the near family around me - stays exactly as it is.
+  if(node && locked && node.closest(".box")){ openSheet(+node.dataset.centre); return; }
   if(node){ holdInPlace(+node.dataset.centre); setCentre(+node.dataset.centre); closeSheet(); return; }
   if(e.target.id === "scrim") closeSheet();
   // A click past the boxes puts the add buttons away - but working inside a
@@ -5156,6 +5179,13 @@ document.addEventListener("keydown", e => {
       }));
     syncGross();
   }
+  const lockBtn = document.getElementById("lockBtn");
+  if(lockBtn) lockBtn.addEventListener("click", () => {
+    locked = !locked;
+    lockBtn.setAttribute("aria-pressed", String(locked));
+    lockBtn.textContent = locked ? "🔒 Gesperrt" : "🔓 Sperren";
+    document.getElementById("plane").classList.toggle("locked", locked);
+  });
   const linkedBox = document.getElementById("showLinked");
   if(linkedBox) linkedBox.addEventListener("change", () => {
     showLinked = linkedBox.checked;
@@ -5195,6 +5225,11 @@ document.getElementById("helpBtn").addEventListener("click", () => {
         <div>
           <div class="kicker">Anleitung · Stammbaum ${VERSION}</div>
           <h2>${esc(DATA.meta.title || "Stammbaum")}</h2>
+        </div>
+        <button class="closer" data-close="1" aria-label="Schließen">×</button>
+      </div>
+      <div class="sheet-body">
+        <div class="sheet-intro">
           <p style="margin-top:12px">
             ${DATA.meta.count} Personen${DATA.meta.span ? " aus den Jahren " + esc(DATA.meta.span) : ""},
             ${DATA.meta.photos} Portraits.
@@ -5205,9 +5240,6 @@ document.getElementById("helpBtn").addEventListener("click", () => {
             keine Installation und lädt nichts nach. Doppelklick genügt.
           </p>
         </div>
-        <button class="closer" data-close="1" aria-label="Schließen">×</button>
-      </div>
-      <div class="sheet-body">
 
         <div class="sec editonly">
           <h3>Bearbeiten</h3>
@@ -5244,6 +5276,7 @@ document.getElementById("helpBtn").addEventListener("click", () => {
           <h3>Bedienung</h3>
           <ul>
             <li><span>Kasten anklicken</span><span>Diese Person wird zum <b>Mittelpunkt</b>. Alle anderen bekommen sofort ihr Verhältnis zu ihr angeschrieben – Vater, Cousine 2. Grades, Schwägerin.</span></li>
+            <li><span>Sperren</span><span>Hält die Ansicht fest. Solange <b>Gesperrt</b> leuchtet, öffnet ein Klick auf einen Kasten nur das Personenblatt – der Mittelpunkt bleibt, wo er ist.</span></li>
             ${IS_EDIT ? `<li><span>Die vier Knöpfe am angeklickten Kasten</span><span>Legen einen Verwandten dieser Person an, in der Richtung, in der er im Baum steht: <b>oben ＋</b> ein Elternteil, <b>unten ＋</b> ein Kind, <b>links ＋</b> ein Geschwister, <b>rechts =</b> ein Partner. Der Steckbrief geht auf, die Verbindung steht schon drin – nur der Name fehlt noch. Bei einem Geschwisterkind unbekannter Eltern wird ein Elternteil <b>?</b> angelegt, der beide zusammenhält und später einen Namen bekommen kann. Ein mit <b>=</b> angelegter Partner gilt zunächst als Partnerschaft; im Steckbrief lässt sich daraus eine Ehe machen.</span></li>` : ""}
             <li><span>Knopf <span class="chipdemo">Blatt</span></span><span>Öffnet das Personenblatt: Lebensdaten, Beruf, Wohnorte, Eltern, Ehen, Kinder, Quellen, Originaltext aus dem Bericht – und den Weg vom Mittelpunkt zu dieser Person, Schritt für Schritt.</span></li>
             <li><span>Liste links</span><span>Sucht in Namen, Orten, Jahren und Berufen. Ein Klick öffnet das Personenblatt.</span></li>
@@ -5418,8 +5451,9 @@ function openCheckSheet(){
     + confirmed + merged;
 
   // answering a question redraws the report - it must not jump back to the top
-  const was = document.querySelector('#scrim [aria-label="Prüfbericht"] .sheet-body');
-  const scroll = was ? was.scrollTop : 0;
+  // (the scrim is what scrolls - the sheet itself grows to its full length)
+  const was = document.querySelector('#scrim [aria-label="Prüfbericht"]');
+  const scroll = was ? was.parentElement.scrollTop : 0;
   closeSheet();
   document.body.insertAdjacentHTML("beforeend", `<div class="scrim" id="scrim">
     <div class="sheet" role="dialog" aria-modal="true" aria-label="Prüfbericht">
@@ -5427,6 +5461,11 @@ function openCheckSheet(){
         <div>
           <div class="kicker">Automatische Prüfung</div>
           <h2>Prüfbericht</h2>
+        </div>
+        <button class="closer" data-close="1" aria-label="Schließen">×</button>
+      </div>
+      <div class="sheet-body">
+        <div class="sheet-intro">
           ${deaths ? `<p class="legend" style="margin-top:10px;max-width:56ch">
             Das Programm prüft im Hintergrund, ob ein Elternteil zu lange vor der Geburt eines
             Kindes gestorben ist. Stimmt es trotzdem, oder lässt es sich nicht mehr nachprüfen,
@@ -5440,13 +5479,11 @@ function openCheckSheet(){
             ${checks.length} Punkte blieben dabei offen. Alles andere stimmt überein.
           </p>` : ""}
         </div>
-        <button class="closer" data-close="1" aria-label="Schließen">×</button>
-      </div>
-      <div class="sheet-body">${body}</div>
+        ${body}</div>
     </div>
   </div>`);
   document.body.style.overflow = "hidden";
-  if(scroll) document.querySelector('#scrim [aria-label="Prüfbericht"] .sheet-body').scrollTop = scroll;
+  if(scroll) document.getElementById("scrim").scrollTop = scroll;
 }
 /* Every person the report names carries their entry number, and the number
    opens their sheet.  Older findings wrote "Person 12" instead of "#12", and a
@@ -5673,8 +5710,8 @@ function renderMerge(){
     && ((q.parents || []).includes(drop) || (q.spouses || []).includes(drop)));
   const docs = (B.documents || []).length;
 
-  const was = document.querySelector('#scrim [aria-label="Zusammenführen"] .sheet-body');
-  const scroll = was ? was.scrollTop : 0;
+  const was = document.querySelector('#scrim [aria-label="Zusammenführen"]');
+  const scroll = was ? was.parentElement.scrollTop : 0;
   closeSheet();
   if(document.getElementById("scrim")) return;
   document.body.insertAdjacentHTML("beforeend", `<div class="scrim" id="scrim">
@@ -5683,6 +5720,11 @@ function renderMerge(){
         <div>
           <div class="kicker">Personen zusammenführen</div>
           <h2>#${keep} und #${drop}</h2>
+        </div>
+        <button class="closer" data-close="1" aria-label="Schließen">×</button>
+      </div>
+      <div class="sheet-body">
+        <div class="sheet-intro">
           <p class="legend" style="margin-top:10px;max-width:60ch">
             Nur zusammenführen, wenn beide Einträge wirklich derselbe Mensch sind. Gleiche Angaben
             werden übernommen, Listen zusammengelegt – wo sich die Einträge widersprechen,
@@ -5692,9 +5734,6 @@ function renderMerge(){
             verschwindet: <b>#${drop} ${esc(B.name || "")}</b>
             <button class="btn" style="margin-left:8px" data-merge-swap="1">Andere Nummer behalten</button></p>
         </div>
-        <button class="closer" data-close="1" aria-label="Schließen">×</button>
-      </div>
-      <div class="sheet-body">
         ${block ? `<div class="askbox"><p>${esc(block)}</p></div>` : ""}
         <div class="sec"><h3>Angaben</h3><div class="mg-wrap"><table class="mg">
           <thead><tr><th></th><th>#${keep} bleibt</th><th>#${drop} verschwindet</th><th>Ergebnis</th></tr></thead>
@@ -5718,7 +5757,7 @@ function renderMerge(){
     </div>
   </div>`);
   document.body.style.overflow = "hidden";
-  if(scroll) document.querySelector('#scrim [aria-label="Zusammenführen"] .sheet-body').scrollTop = scroll;
+  if(scroll) document.getElementById("scrim").scrollTop = scroll;
 }
 
 /* The way in from a person's sheet: find the other entry by number or name. */
@@ -5733,14 +5772,17 @@ function openMergePick(id){
         <div>
           <div class="kicker">Personen zusammenführen</div>
           <h2>#${id} ${esc(p.name || "")} zusammenführen mit …</h2>
+        </div>
+        <button class="closer" data-close="1" aria-label="Schließen">×</button>
+      </div>
+      <div class="sheet-body">
+        <div class="sheet-intro">
           <p class="legend" style="margin-top:10px;max-width:56ch">Nummer oder Name des zweiten Eintrags
             derselben Person. Danach kommt die Prüfseite – zusammengeführt wird erst nach deiner Bestätigung.</p>
           <input class="mg-search" id="mergeQuery" type="search" placeholder="Nummer oder Name"
             autocomplete="off" data-merge-query="${id}">
         </div>
-        <button class="closer" data-close="1" aria-label="Schließen">×</button>
-      </div>
-      <div class="sheet-body"><div id="mergeHits"></div></div>
+        <div id="mergeHits"></div></div>
     </div>
   </div>`);
   document.body.style.overflow = "hidden";
@@ -6192,16 +6234,16 @@ function exportHTML(){
       <div>
         <div class="kicker">Exportieren</div>
         <h2>Was soll aus dem Haus?</h2>
-        <div class="node-meta" style="font-size:14px;margin-top:4px">
-          Aus dem Haus geht die Ansicht, die gerade offen ist: <b>${esc(viewName)}</b>${
-            centre === null ? "" : " um " + esc((BY_ID.get(centre) || {}).name || "")} –
-          <b>${shown}</b> von ${DATA.meta.count} Personen. Diagramm und Buch zeigen dieselben;
-          wer nicht im Bild ist, steht auch nicht im Buch.
-        </div>
       </div>
       <button class="closer" data-close="1" aria-label="Schließen">×</button>
     </div>
     <div class="sheet-body">
+      <div class="sheet-intro"><div class="node-meta" style="font-size:14px">
+          Aus dem Haus geht die Ansicht, die gerade offen ist: <b>${esc(viewName)}</b>${
+            centre === null ? "" : " um " + esc((BY_ID.get(centre) || {}).name || "")} –
+          <b>${shown}</b> von ${DATA.meta.count} Personen. Diagramm und Buch zeigen dieselben;
+          wer nicht im Bild ist, steht auch nicht im Buch.
+      </div></div>
 
       <div class="sec"><h3>Inhalt</h3>
         <div class="fields two">
@@ -6263,12 +6305,12 @@ function treesHTML(){
       <div>
         <div class="kicker">Stammbäume</div>
         <h2>${list.length === 1 ? "Ein Baum" : list.length + " Bäume"} in diesem Programm</h2>
-        <div class="node-meta" style="font-size:14px;margin-top:4px">
-          Jeder liegt in einem eigenen Ordner, mit seinen eigenen Fotos und Unterlagen.</div>
       </div>
       <button class="closer" data-close="1" aria-label="Schließen">×</button>
     </div>
     <div class="sheet-body">
+      <div class="sheet-intro"><div class="node-meta" style="font-size:14px">
+        Jeder liegt in einem eigenen Ordner, mit seinen eigenen Fotos und Unterlagen.</div></div>
       <div class="sec"><h3>Öffnen</h3>
         <div class="stack">${list.map(t => `<button type="button"
           class="treerow${t.slug === now ? " jetzt" : ""}" data-tree="${esc(t.slug)}"
@@ -6651,14 +6693,14 @@ function importHTML(){
       <div>
         <div class="kicker">Importieren</div>
         <h2>Einen Stammbaum einlesen</h2>
-        <div class="node-meta" style="font-size:14px;margin-top:4px">
-          Eine <b>Datei</b> – aus diesem Programm oder eine GEDCOM aus einem beliebigen
-          anderen. Oder ein <b>Ordner</b>: einer mit einem Stammbaum darin, oder eine
-          ganze Ablage mit mehreren.</div>
       </div>
       <button class="closer" data-close="1" aria-label="Schließen">×</button>
     </div>
     <div class="sheet-body">
+      <div class="sheet-intro"><div class="node-meta" style="font-size:14px">
+        Eine <b>Datei</b> – aus diesem Programm oder eine GEDCOM aus einem beliebigen
+        anderen. Oder ein <b>Ordner</b>: einer mit einem Stammbaum darin, oder eine
+        ganze Ablage mit mehreren.</div></div>
       <div class="sec"><h3>Woher</h3>
         <div class="quelle" role="tablist">
           <button type="button" class="btn quellknopf an" data-quelle="datei">Aus einer Datei</button>
@@ -6963,12 +7005,12 @@ function startHTML(){
       <div>
         <div class="kicker">Stammbaum</div>
         <h2>Noch kein Baum in diesem Programm</h2>
-        <div class="node-meta" style="font-size:14px;margin-top:6px">
-          Alles, was hier eingetragen wird, liegt in einem Ordner neben dem Programm –
-          nicht im Programm selbst.</div>
       </div>
     </div>
     <div class="sheet-body">
+      <div class="sheet-intro"><div class="node-meta" style="font-size:14px">
+        Alles, was hier eingetragen wird, liegt in einem Ordner neben dem Programm –
+        nicht im Programm selbst.</div></div>
       ${old ? `<div class="sec"><h3>Vorhandenen Baum übernehmen</h3>
         <p class="prose">Neben dem Programm liegt noch ein Datenordner aus dem früheren
           Aufbau. Er kann einmalig übernommen werden – Personen, Fotos und Unterlagen.</p>
@@ -7044,13 +7086,13 @@ function umzugHTML(){
       <div>
         <div class="kicker">Ablage</div>
         <h2>Jeder Stammbaum bekommt einen eigenen Ordner</h2>
-        <div class="node-meta" style="font-size:14px;margin-top:6px">
-          Danach liegt alles zu einer Familie an einer Stelle – zum Weitergeben
-          reicht dann ein Ordner.</div>
       </div>
       <button class="closer" data-close="1" aria-label="Später">×</button>
     </div>
     <div class="sheet-body">
+      <div class="sheet-intro"><div class="node-meta" style="font-size:14px">
+        Danach liegt alles zu einer Familie an einer Stelle – zum Weitergeben
+        reicht dann ein Ordner.</div></div>
       <div class="sec"><h3>Die Bäume</h3>
         <ul class="movelist">${rows}</ul></div>
       ${loose}
