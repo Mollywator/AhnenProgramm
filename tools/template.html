@@ -119,6 +119,17 @@ html[data-edit] .masthead .sub::before{
   font-size:12.5px;color:var(--ink-3);letter-spacing:.06em;font-family:var(--sans);
   text-transform:uppercase;margin-top:5px;
 }
+.masthead .subrow{display:flex;align-items:center;gap:10px;margin-top:5px}
+.masthead .subrow .sub{margin-top:0}
+.navhist{display:inline-flex;gap:3px;flex:0 0 auto}
+.navbtn{
+  font-family:var(--sans);font-size:12px;line-height:1;height:18px;min-width:24px;
+  padding:0 5px;background:transparent;color:var(--ink-2);
+  border:1px solid var(--rule-2);border-radius:2px;cursor:pointer;transition:.16s;
+}
+.navbtn:hover:not(:disabled){color:var(--accent);border-color:var(--accent);background:var(--card)}
+.navbtn:disabled{opacity:.35;cursor:default}
+.navbtn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .spacer{flex:1 1 auto}
 .tools{display:flex;align-items:center;gap:10px}
 .btn{
@@ -794,7 +805,18 @@ html[data-edit] .editonly.flex{display:flex !important}
 <header class="masthead">
   <div>
     <h1 id="mastTitle"></h1>
-    <div class="sub" id="sub"></div>
+    <!-- Back and forward sit in the line under the title, not among the tools:
+         top left is where every browser and file window keeps them, and the
+         line is there anyway, so the masthead grows neither wider nor taller. -->
+    <div class="subrow">
+      <span class="navhist">
+        <button class="navbtn" id="navBack" disabled aria-label="Zurück"
+                title="Zurück zur vorigen Person (Maus-Seitentaste · Alt+←)">←</button>
+        <button class="navbtn" id="navFwd" disabled aria-label="Vor"
+                title="Wieder vor (Maus-Seitentaste · Alt+→)">→</button>
+      </span>
+      <div class="sub" id="sub"></div>
+    </div>
   </div>
   <div class="spacer"></div>
   <div class="tools">
@@ -899,7 +921,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.8.0";
+const VERSION = "1.9.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -2495,6 +2517,72 @@ function openSheet(id){
   closeSheet();
   document.body.insertAdjacentHTML("beforeend", sheetHTML(BY_ID.get(id)));
   document.body.style.overflow = "hidden";
+  navRecord({centre, sheet: id}, centre);
+}
+
+/* ---------------------------------------------------------------- history
+   Back and forward between the people looked at, the way a browser does it.
+   One step is a centre plus the sheet that was open on it, so going back from
+   a sheet reached through three relatives walks the same three sheets again.
+   Kept in memory only: a reload or a switch of tree starts it afresh, and a
+   step whose person has since been deleted is skipped rather than shown. */
+const nav = {stack: [], at: -1, busy: false};
+const NAV_MAX = 200;
+
+function navRecord(entry, before){
+  if(nav.busy || (entry.centre === null && entry.sheet === null)) return;
+  // The page opens on a centre nobody clicked; the first step away from it
+  // has to be able to come back there.
+  if(nav.at < 0 && before !== null && before !== undefined && before !== entry.centre){
+    nav.stack = [{centre: before, sheet: null}];
+    nav.at = 0;
+  }
+  const here = nav.stack[nav.at];
+  if(here && here.centre === entry.centre && here.sheet === entry.sheet) return;
+  nav.stack.splice(nav.at + 1);
+  nav.stack.push(entry);
+  if(nav.stack.length > NAV_MAX) nav.stack.shift();
+  nav.at = nav.stack.length - 1;
+  navSync();
+}
+
+function navUsable(e){
+  return (e.centre === null || BY_ID.has(e.centre)) && (e.sheet === null || BY_ID.has(e.sheet));
+}
+
+function navTarget(step){
+  for(let i = nav.at + step; i >= 0 && i < nav.stack.length; i += step){
+    if(navUsable(nav.stack[i])) return i;
+  }
+  return -1;
+}
+
+function navGo(step){
+  const i = navTarget(step);
+  if(i < 0 || document.getElementById("unsavedAsk")) return;
+  const go = () => {
+    closeSheetNow();
+    const e = nav.stack[i];
+    nav.busy = true;
+    try{
+      nav.at = i;
+      if(e.centre !== null && e.centre !== centre){ holdInPlace(null); setCentre(e.centre); }
+      if(e.sheet !== null) openSheet(e.sheet);
+    } finally {
+      nav.busy = false;
+    }
+    navSync();
+  };
+  // an open form with unsaved work asks first, exactly as closing it would
+  if(typeof editGuard === "function" && !editGuard(go)) return;
+  go();
+}
+
+function navSync(){
+  const back = document.getElementById("navBack");
+  const fwd = document.getElementById("navFwd");
+  if(back) back.disabled = navTarget(-1) < 0;
+  if(fwd) fwd.disabled = navTarget(1) < 0;
 }
 function closeSheet(){
   // the editor refuses to be closed on top of unsaved work; in the read only
@@ -2511,7 +2599,9 @@ function closeSheetNow(){
 
 function setCentre(id){
   const wasEmpty = centre === null;
+  const before = centre;
   centre = id;
+  navRecord({centre: id, sheet: null}, before);
   // Clicking a box is also what arms its four add buttons - one gesture, so
   // that adding a relative never needs a mode to be switched on first.
   armed = id;
@@ -4701,6 +4791,12 @@ document.addEventListener("keydown", e => {
     return;
   }
   if(e.key === "Escape") closeSheet();
+  if(e.key === "BrowserBack" || e.key === "BrowserForward"
+     || (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight"))){
+    e.preventDefault();
+    navGo(e.key === "BrowserBack" || e.key === "ArrowLeft" ? -1 : 1);
+    return;
+  }
   if(e.key === "/" && document.activeElement.id !== "q"){
     e.preventDefault(); document.getElementById("q").focus();
   }
@@ -4822,6 +4918,16 @@ document.querySelectorAll(".chip").forEach(chip => chip.addEventListener("click"
   document.querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", String(c === chip)));
   renderList();
 }));
+document.getElementById("navBack").addEventListener("click", () => navGo(-1));
+document.getElementById("navFwd").addEventListener("click", () => navGo(1));
+/* The side buttons of a mouse are 3 (back) and 4 (forward).  Acted on at
+   mouseup and swallowed in every phase - left alone, the browser takes them
+   as leaving the page. */
+["mousedown", "mouseup", "auxclick"].forEach(type => document.addEventListener(type, e => {
+  if(e.button !== 3 && e.button !== 4) return;
+  e.preventDefault();
+  if(type === "mouseup") navGo(e.button === 3 ? -1 : 1);
+}));
 document.getElementById("rootBtn").addEventListener("click", () => {
   if(ME !== null && BY_ID.has(ME)) return setCentre(ME);
   // Nobody has said who they are yet.  Point at the one place where that is
@@ -4896,7 +5002,8 @@ document.getElementById("helpBtn").addEventListener("click", () => {
             <li><span>Knöpfe oben</span><span>Über jedem Knopf steht sein Name, sobald die Maus darauf liegt. Das <b>?</b> öffnet diese Anleitung.</span></li>
             <li><span>Maus über einen Kasten</span><span>Hebt alle Linien dieser Person hervor und blendet den Rest ab. In den großen Ansichten der schnellste Weg, einer Verbindung zu folgen.</span></li>
             <li><span>Legende unten</span><span>Ein Klick auf <b>blutsverwandt</b>, <b>angeheiratet</b> oder <b>deren Familie</b> zeigt nur diese Gruppe.</span></li>
-            <li><span>Tastatur</span><span><kbd>/</kbd> springt in die Suche, <kbd>Esc</kbd> schließt das Fenster.</span></li>
+            <li><span>Knöpfe <b>←</b> <b>→</b></span><span>Links oben unter dem Namen. Gehen zurück zur vorigen Person und wieder vor – über Mittelpunkte und Personenblätter, so weit du geklickt hast. Die Seitentasten der Maus tun dasselbe.</span></li>
+            <li><span>Tastatur</span><span><kbd>/</kbd> springt in die Suche, <kbd>Esc</kbd> schließt das Fenster, <kbd>Alt</kbd>+<kbd>←</kbd> und <kbd>Alt</kbd>+<kbd>→</kbd> gehen zurück und vor.</span></li>
           </ul>
         </div>
 
