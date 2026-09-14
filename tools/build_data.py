@@ -907,10 +907,7 @@ def main() -> None:
                 elif gap > 60:
                     note("Pruefen", "%s waere bei der Geburt von %s schon %d Jahre alt gewesen."
                          % (who(parent), who(pid), gap))
-            if pd and by and by > pd + 1 and people[parent]["sex"] == "m":
-                note("Datum", "%s starb %d, das Kind %s kam aber %d zur Welt."
-                     % (who(parent), pd, who(pid), by))
-            elif pd and by and by > pd and people[parent]["sex"] == "w":
+            if died_before_child(people[parent], person):
                 note("Datum", "%s starb %d, das Kind %s kam aber %d zur Welt."
                      % (who(parent), pd, who(pid), by))
 
@@ -1124,6 +1121,40 @@ def death_from_prose(text: str) -> dict | None:
         return {"year": None, "month": None, "day": None, "place": None,
                 "approx": False, "note": "lebt nicht mehr"} if "lebt nicht mehr" in text else None
     return result
+
+
+# -- a parent who was already dead ------------------------------------------
+# The same rule as `diedBeforeChild` in template.html, and checked against it
+# by tools/test_tod_vor_geburt.py.  A mother has to live to the birth; a father
+# may have died up to FATHER_GRACE_MONTHS before it.  A parent of unknown sex
+# gets the father's allowance, the kinder one.  Every date is read the kindest
+# way it allows - a year alone is any day of it, an approximate one two years
+# either side - so only what is impossible under every reading is reported.
+FATHER_GRACE_MONTHS = 11
+
+
+def _date_span(date: dict | None) -> tuple[tuple, tuple] | None:
+    year = (date or {}).get("year")
+    if not year:
+        return None
+    if date.get("approx"):
+        return (year - 2, 1, 1), (year + 2, 12, 31)
+    month = date.get("month") or 0
+    day = (date.get("day") or 0) if month else 0
+    return (year, month or 1, day or 1), (year, month or 12, day or 31)
+
+
+def died_before_child(parent: dict, child: dict) -> bool:
+    died, born = _date_span(parent.get("death")), _date_span(child.get("birth"))
+    if not died or not born:
+        return False
+    grace = 0 if parent.get("sex") == "w" else FATHER_GRACE_MONTHS
+
+    def at(ymd: tuple, months: int) -> int:
+        y, m, d = ymd
+        return (y * 12 + m - 1 + months) * 31 + d - 1
+
+    return at(born[0], 0) > at(died[1], grace)
 
 
 if __name__ == "__main__":

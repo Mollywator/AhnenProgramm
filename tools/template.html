@@ -632,6 +632,8 @@ html[data-edit] .editonly.flex{display:flex !important}
 .field.check span{text-transform:none;letter-spacing:.04em;font-size:12.5px;color:var(--ink-2)}
 .field.check.off{opacity:.5;cursor:default}
 .hintline{font-family:var(--sans);font-size:11.5px;letter-spacing:.05em;color:var(--ink-3);margin:2px 0 0}
+.pruefzahl{display:inline-block;min-width:18px;padding:0 5px;margin-left:3px;border-radius:9px;
+  background:var(--accent);color:#fff;font-size:11px;line-height:18px;text-align:center}
 
 /* a date is three little boxes, not a date picker: most of these people are
    known by a year alone, and a picker insists on a full one */
@@ -897,7 +899,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.7.0";
+const VERSION = "1.8.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -2703,6 +2705,239 @@ function parentKind(childId, parentId){
   return PARENT_KINDS.includes(said) ? said : "";
 }
 
+/* ---- a parent who was already dead ---------------------------------------- */
+/* Somebody who died long before a child was born cannot be its birth parent -
+   and that is exactly what got into trees: a woman's first husband, dead for
+   years, offered as the father of a child from her second marriage.  A mother
+   has to live to the birth.  A father may have died up to eleven months before
+   it; any longer and he is not the father but a mistake.
+
+   A warning, never a refusal: in an old register the dates themselves are what
+   is most often wrong.  Every date is read the kindest way it allows - a year
+   alone could be any day of it, "ungefähr" two years either side - so what is
+   flagged is impossible under every reading.  Step-parents are not measured. */
+const FATHER_GRACE_MONTHS = 11;
+
+function dateSpan(d){
+  const y = d && +d.year;
+  if(!y) return null;
+  if(d.approx) return {lo: [y - 2, 1, 1], hi: [y + 2, 12, 31]};
+  const m = +d.month || 0, day = m ? +d.day || 0 : 0;
+  return {lo: [y, m || 1, day || 1], hi: [y, m || 12, day || 31]};
+}
+
+function diedBeforeChild(parent, child){
+  if(!parent || !child) return false;
+  const died = dateSpan(parent.death), born = dateSpan(child.birth);
+  if(!died || !born) return false;
+  const grace = parent.sex === "w" ? 0 : FATHER_GRACE_MONTHS;
+  const at = ([y, m, d], months) => (y * 12 + m - 1 + months) * 31 + d - 1;
+  return at(born.lo, 0) > at(died.hi, grace);
+}
+
+/* What a decision was made about: the dates somebody actually looked at.
+   Compared, never read - when one of them changes the finding is back. */
+function deathPrint(parent, child){
+  const d = x => x ? [x.year || null, x.month || null, x.day || null, !!x.approx] : null;
+  return JSON.stringify([d(parent.death), parent.sex || null, d(child.birth)]);
+}
+
+/* One parent against one child, from the saved tree - not from a half-typed
+   form.  null where there is nothing to say. */
+function deathCheck(parentId, childId){
+  const parent = BY_ID.get(parentId), child = BY_ID.get(childId);
+  if(!parent || !child) return null;
+  if((child.parent_kind || {})[parentId] === "step" || !diedBeforeChild(parent, child)) return null;
+  const print = deathPrint(parent, child);
+  const when = d => shortDate(d) || String(d.year);
+  const name = p => p.name || "#" + p.id;
+  const text = name(parent) + " starb " + when(parent.death) + ", "
+    + name(child) + " kam aber " + when(child.birth) + " zur Welt – "
+    + (parent.sex === "w" ? "als Mutter nicht möglich."
+      : "mehr als " + FATHER_GRACE_MONTHS + " Monate nach dem Tod, als "
+        + (parent.sex === "m" ? "Vater" : "leiblicher Elternteil") + " nicht möglich.");
+  const key = parentId + ":" + childId;
+  const said = (PRUEFUNG.entscheidungen || {})[key];
+  return {key, parent: parentId, child: childId, text, print,
+          decided: said && said.print === print ? said.art : ""};
+}
+
+/* ---- the background check --------------------------------------------------
+   Runs on its own while the editor is open: once after the tree is loaded and
+   again after every save.  Nothing is shown while it works, and nothing at all
+   when it finds nothing.  A finding nobody has seen yet gets one message at the
+   bottom, ten seconds long, pointing to the Prüfbericht - where every finding is
+   written out in full and can be confirmed.
+
+   A person is only looked at again when something the check reads has changed:
+   their birth, a parent's death or sex, or how the parent is tied to them.
+
+   Its memory is `pruefung.json` in the tree's folder (tools/pruefung.py), not
+   the tree file: what was checked, what was found, what was decided.  The
+   family's data is never changed by the check, and an older program still opens
+   the tree.  `var`, not `let`: refreshGraph can run before this line has. */
+var PRUEFUNG = (EDIT && EDIT.pruefung) || {personen: {}, entscheidungen: {}};
+PRUEFUNG.personen = PRUEFUNG.personen || {};
+PRUEFUNG.entscheidungen = PRUEFUNG.entscheidungen || {};
+var deathSeen = new Map();        // person id -> what the check last read
+var deathFound = new Map();       // person id -> findings as that person's child
+var deathKnown = new Set();       // findings already reported - no message again
+var deathSeeded = false;
+var pruefDirty = false;
+var deathTimer = 0;
+
+function deathSignature(p){
+  return JSON.stringify([p.birth, (p.parents || []).map(id => {
+    const q = BY_ID.get(id);
+    return [id, q ? [q.death, q.sex] : null, (p.parent_kind || {})[id] || ""];
+  })]);
+}
+
+function checkOneChild(p, quiet){
+  deathSeen.set(p.id, deathSignature(p));
+  const found = (p.parents || []).map(id => deathCheck(id, p.id)).filter(Boolean);
+  if(found.length) deathFound.set(p.id, found); else deathFound.delete(p.id);
+  if(!quiet) pruefDirty = true;
+}
+
+/* What the file already knows is taken over once: people whose dates are as
+   they were are not checked again, and their findings are not news. */
+function seedDeathCheck(){
+  deathSeeded = true;
+  for(const [id, rec] of Object.entries(PRUEFUNG.personen)){
+    for(const f of rec.funde || []) deathKnown.add(f.eltern + ":" + id + "|" + f.print);
+    const p = BY_ID.get(+id);
+    if(!p || deathSignature(p) !== rec.sig) continue;
+    if((rec.funde || []).length) checkOneChild(p, true);   // for the sentences only
+    else deathSeen.set(p.id, rec.sig);
+  }
+}
+
+function savePruefung(){
+  pruefDirty = false;
+  const personen = {};
+  for(const [id, sig] of deathSeen)
+    personen[id] = {sig, funde: (deathFound.get(id) || []).map(f => ({eltern: f.parent, print: f.print}))};
+  PRUEFUNG.personen = personen;
+  return api("/api/pruefung?k=" + encodeURIComponent(EDIT.token), {pruefung: PRUEFUNG});
+}
+
+function scheduleDeathCheck(){
+  if(!EDIT) return;
+  clearTimeout(deathTimer);
+  deathTimer = setTimeout(runDeathCheck, 1200);
+}
+
+function runDeathCheck(){
+  if(!deathSeeded) seedDeathCheck();
+  for(const id of [...deathSeen.keys()])
+    if(!BY_ID.has(id)){ deathSeen.delete(id); deathFound.delete(id); pruefDirty = true; }
+  const queue = DATA.people.map(p => p.id);
+  const later = window.requestIdleCallback
+    ? fn => requestIdleCallback(fn, {timeout: 2000})
+    : fn => setTimeout(fn, 16);
+  const work = () => {
+    // a few hundred at a time, so a large family never holds the window up
+    for(let n = 0; queue.length && n < 300; n++){
+      const p = BY_ID.get(queue.pop());
+      if(p && deathSeen.get(p.id) !== deathSignature(p)) checkOneChild(p);
+    }
+    if(queue.length) later(work);
+    else finishDeathCheck();
+  };
+  later(work);
+}
+
+function openDeathFindings(){
+  return [...deathFound.values()].flat().filter(f => !f.decided);
+}
+
+function finishDeathCheck(){
+  updateCheckButton();
+  // A report opened while the check was still running would go on saying
+  // "Nichts gefunden" - it is drawn again with what was found.
+  if(document.querySelector('#scrim [aria-label="Prüfbericht"]')) openCheckSheet();
+  if(pruefDirty) savePruefung().catch(() => { pruefDirty = true; });
+  const fresh = openDeathFindings().filter(f => !deathKnown.has(f.key + "|" + f.print));
+  for(const f of [...deathFound.values()].flat()) deathKnown.add(f.key + "|" + f.print);
+  if(!fresh.length) return;
+  say(fresh.length === 1
+    ? "Prüfung: " + fresh[0].text + " Mehr im Prüfbericht."
+    : "Prüfung: " + fresh.length + " Elternteile starben vor der Geburt ihres Kindes. Mehr im Prüfbericht.",
+    true, 10000);
+}
+
+function updateCheckButton(){
+  const btn = document.getElementById("checkBtn");
+  if(!btn) return;
+  const open = openDeathFindings().length;
+  btn.hidden = !((DATA.checks || []).length || deathFound.size);
+  btn.innerHTML = "Prüfbericht" + (open ? ` <span class="pruefzahl">${open}</span>` : "");
+  btn.title = open ? open + " offene Punkte" : "";
+}
+
+const DECIDED_TEXT = {geprueft: "Geprüft – passt so", verworfen: "Nicht nachprüfbar – ausgeblendet"};
+
+function deathReportHTML(){
+  const all = [...deathFound.values()].flat();
+  if(!all.length) return "";
+  const open = all.filter(f => !f.decided), done = all.filter(f => f.decided);
+  const btn = (value, label) =>
+    `<button class="btn" style="margin:6px 6px 0 0" data-decide="${value}">${label}</button>`;
+  const row = f => `<div class="check"><span class="tag Datum">Datum</span>
+    <div><p>${esc(f.text)}
+      <button class="plink" style="padding:1px 7px;font-size:14px" data-open="${f.child}">ansehen</button></p>
+      ${!EDIT ? "" : f.decided
+        ? `<p class="hintline">${DECIDED_TEXT[f.decided]}${
+            (PRUEFUNG.entscheidungen[f.key] || {}).am ? " am " + esc(PRUEFUNG.entscheidungen[f.key].am.split("-").reverse().join(".")) : ""}.
+            ${btn("|" + f.key, "rückgängig")}</p>`
+        : btn("geprueft|" + f.key, "Geprüft – passt so")
+          + btn("verworfen|" + f.key, "Nicht nachprüfbar – ausblenden")}</div></div>`;
+  return `<div class="sec"><h3>Lebensdaten · Elternteil starb vor der Geburt</h3>
+    ${open.length ? open.map(row).join("") : `<p class="legend">Nichts mehr offen.</p>`}
+    ${EDIT && open.length > 1 ? `<div style="margin-top:12px"><button class="btn" data-decide-all="verworfen">
+      Alle ${open.length} offenen ausblenden – nicht nachprüfbar</button></div>` : ""}
+    ${done.length ? `<details style="margin-top:12px"><summary class="hintline">Erledigt (${done.length})</summary>
+      ${done.map(row).join("")}</details>` : ""}</div>`;
+}
+
+/* A decision goes to pruefung.json at once.  "verworfen" is for what cannot be
+   asked about any more - a record from 1600 copied as it stood - and hides the
+   finding just like "geprueft" does; both come back when a date changes. */
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-decide],[data-decide-all]");
+  if(!b || !EDIT) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const targets = b.dataset.decideAll
+    ? openDeathFindings().map(f => [b.dataset.decideAll, f.key])
+    : [b.dataset.decide.split("|")];
+  const before = JSON.stringify(PRUEFUNG.entscheidungen);
+  for(const [art, key] of targets){
+    const [parentId, childId] = key.split(":").map(Number);
+    if(!art) delete PRUEFUNG.entscheidungen[key];
+    else {
+      const f = deathCheck(parentId, childId);
+      if(f) PRUEFUNG.entscheidungen[key] = {print: f.print, art, am: today};
+    }
+    const child = BY_ID.get(childId);
+    if(child) checkOneChild(child);
+  }
+  b.disabled = true;
+  try{
+    await savePruefung();
+    updateCheckButton();
+    openCheckSheet();
+  }catch(err){
+    PRUEFUNG.entscheidungen = JSON.parse(before);
+    for(const [, key] of targets){
+      const child = BY_ID.get(+key.split(":")[1]);
+      if(child) checkOneChild(child);
+    }
+    say("Nicht gespeichert – " + err.message, true);
+    b.disabled = false;
+  }
+});
+
 /* Rebuild everything derived from the person list.  The two caches hold whole
    ancestor and blood-relative sets, so a stale one would keep drawing the tree
    the way it looked before the edit. */
@@ -2715,6 +2950,7 @@ function refreshGraph(){
   bloodCache.clear();
   DATA.meta.count = DATA.people.length;
   DATA.meta.photos = DATA.people.filter(p => PHOTOS[p.id]).length;
+  scheduleDeathCheck();
 }
 
 /* ---- talking to the back end -------------------------------------------- */
@@ -2784,7 +3020,7 @@ function reloadSaying(text){
 }
 
 let toastTimer = 0;
-function say(text, bad){
+function say(text, bad, ms){
   const old = document.querySelector(".toast");
   if(old) old.remove();
   document.body.insertAdjacentHTML("beforeend",
@@ -2793,7 +3029,7 @@ function say(text, bad){
   toastTimer = setTimeout(() => {
     const t = document.querySelector(".toast");
     if(t) t.remove();
-  }, bad ? 8000 : 3400);
+  }, ms || (bad ? 8000 : 3400));
 }
 
 /* ---- the working copy ---------------------------------------------------- */
@@ -4238,7 +4474,10 @@ function spouseSuggestions(role, taken){
     for(const parent of draft.parents || []){
       const p = lookup(parent);
       if(!p) continue;
-      for(const mate of p.spouses || []) add(mate, parent);
+      // A spouse who was dead long before this child is the one guess that
+      // must not be offered: it is how a late first husband became a father.
+      for(const mate of p.spouses || [])
+        if(!diedBeforeChild(lookup(mate), draft)) add(mate, parent);
     }
     return out;
   }
@@ -4792,16 +5031,18 @@ const KIND_TEXT = {
   Pruefen: "möglich, aber ungewöhnlich",
   Luecke: "im Bericht nicht vorhanden"
 };
-document.getElementById("checkBtn").addEventListener("click", () => {
+document.getElementById("checkBtn").addEventListener("click", () => openCheckSheet());
+function openCheckSheet(){
   const checks = DATA.checks || [];
   const order = ["Struktur", "Datum", "Pruefen", "Luecke"];
   const groups = order.filter(k => checks.some(c => c.kind === k));
-  const body = groups.length ? groups.map(k => `<div class="sec">
+  const deaths = deathReportHTML();
+  const body = deaths + (groups.length ? groups.map(k => `<div class="sec">
       <h3>${k === "Pruefen" ? "Prüfen" : k === "Luecke" ? "Lücken" : k} · ${KIND_TEXT[k]}</h3>
       ${checks.filter(c => c.kind === k).map(c =>
         `<div class="check"><span class="tag ${k}">${k === "Pruefen" ? "Prüfen" : k === "Luecke" ? "Lücke" : k}</span>
          <p>${linkIds(esc(c.text))}</p></div>`).join("")}
-    </div>`).join("") : `<div class="sec"><p class="legend">Nichts gefunden - alle Angaben des Berichts passen zusammen.</p></div>`;
+    </div>`).join("") : deaths ? "" : `<div class="sec"><p class="legend">Nichts gefunden - alle Angaben des Berichts passen zusammen.</p></div>`);
 
   closeSheet();
   document.body.insertAdjacentHTML("beforeend", `<div class="scrim" id="scrim">
@@ -4810,13 +5051,18 @@ document.getElementById("checkBtn").addEventListener("click", () => {
         <div>
           <div class="kicker">Automatische Prüfung</div>
           <h2>Prüfbericht</h2>
-          <p class="legend" style="margin-top:10px;max-width:56ch">
+          ${deaths ? `<p class="legend" style="margin-top:10px;max-width:56ch">
+            Das Programm prüft im Hintergrund, ob ein Elternteil zu lange vor der Geburt eines
+            Kindes gestorben ist. Stimmt es trotzdem, oder lässt es sich nicht mehr nachprüfen,
+            wird der Punkt hier erledigt – er meldet sich erst wieder, wenn sich eines der Daten
+            ändert. Die Stammbaumdaten selbst werden dabei nicht verändert.
+          </p>` : ""}
+          ${checks.length ? `<p class="legend" style="margin-top:10px;max-width:56ch">
             Beim Einlesen der PDF wurden alle Angaben gegeneinander gerechnet: Elternlinien gegen die
             gedruckten Kinderlisten, Lebensdaten gegen die Generationenfolge und die
             Verwandtschaftsbezeichnungen des Berichts gegen den errechneten Stammbaum.
-            ${DATA.checks.length ? DATA.checks.length + " Punkte blieben" : "Nichts blieb"} dabei offen.
-            Alles andere stimmt überein.
-          </p>
+            ${checks.length} Punkte blieben dabei offen. Alles andere stimmt überein.
+          </p>` : ""}
         </div>
         <button class="closer" data-close="1" aria-label="Schließen">×</button>
       </div>
@@ -4824,7 +5070,7 @@ document.getElementById("checkBtn").addEventListener("click", () => {
     </div>
   </div>`);
   document.body.style.overflow = "hidden";
-});
+}
 function linkIds(s){
   return s.replace(/#(\d+)/g, (m, id) => BY_ID.has(+id)
     ? `<button class="plink" style="padding:1px 7px;font-size:14px" data-open="${id}">#${id}</button>` : m);
@@ -6421,8 +6667,8 @@ document.getElementById("hintDot").addEventListener("click", () =>
   // the view buttons start on "Alle" when there is nobody to be near to
   setMode(mode);
 
-  const check = document.getElementById("checkBtn");
-  if(check && !(DATA.checks && DATA.checks.length)) check.hidden = true;
+  updateCheckButton();
+  scheduleDeathCheck();
 })();
 
 /* Läuft das hier aus einem Zweig, sagt es die Fensterleiste.  Zwei Fenster

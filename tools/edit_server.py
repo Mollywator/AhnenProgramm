@@ -47,6 +47,7 @@ import gedcom  # noqa: E402
 import edits as person_lib  # noqa: E402
 import export as export_lib  # noqa: E402
 import format as schema  # noqa: E402  - "format" is a builtin, hence the rename
+import pruefung  # noqa: E402  - what the background check looked at and decided
 import store  # noqa: E402
 import verknuepfung  # noqa: E402  - the same person in more than one tree
 import zweig  # noqa: E402
@@ -316,6 +317,9 @@ def read_state(tree: dict) -> dict:
         "format": schema.FORMAT,
         "repo": REPO_URL,
         "umgewandelt": (tree.get("meta") or {}).get("umgewandelt"),
+        # What the background check already looked at and what was decided -
+        # from pruefung.json beside the tree, never from baum.json.
+        "pruefung": pruefung.laden(store.tree_dir(create=False)),
         # `None` im Hauptordner: dort gibt es keinen Zweig, und alles, was
         # daran haengt - Fenstertitel, Uebungsbaum - faellt damit still weg.
         "zweig": zweig.info(ROOT),
@@ -560,6 +564,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.api_set_data_dir()
             if route == "/api/pruefen":
                 return self.api_pruefen()
+            if route == "/api/pruefung":
+                return self.api_pruefung()
             if route == "/api/umziehen":
                 return self.api_umziehen()
             if route == "/api/open-folder":
@@ -704,6 +710,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """
         wanted = (self.body().get("pfad") or "").strip()
         self.send_json({"ok": True, "erkannt": store.identify(wanted)})
+
+    def api_pruefung(self) -> None:
+        """Keep what the background check looked at and what was decided.
+
+        Written to pruefung.json in the open tree's folder.  baum.json is not
+        read or written here - see pruefung.py for why that matters.
+        """
+        slug = store.open_slug()
+        if not store.has_tree(slug):
+            return self.fail(409, "Kein Stammbaum offen")
+        pruefung.speichern(store.tree_dir(slug, create=False), self.body().get("pruefung"))
+        self.send_json({"ok": True})
 
     def api_new(self) -> None:
         """Start an empty tree - what another family sees on their first day."""

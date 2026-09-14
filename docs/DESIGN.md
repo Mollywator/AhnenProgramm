@@ -74,6 +74,16 @@ to the reader.
 of parser bugs: at the time of writing all 15 entries are inconsistencies in the
 source data.
 
+In the editor the same button also carries a check that runs in the background
+while the program is open: a mother who died before a child's birth, or a father
+who died more than eleven months before it (`diedBeforeChild` in the page,
+`died_before_child` in `build_data.py`, one rule tested against one table). It
+announces only findings it has not reported before, shows the open count as a
+red number on the button, and lets each finding be marked *geprüft* or
+*nicht nachprüfbar*. What it looked at and what was decided lives in
+`pruefung.json` beside `baum.json` (`tools/pruefung.py`) — never in the tree
+file, so the check changes no family data and needs no format version.
+
 The strongest check works like this. The report prints a relationship label
 behind every name, always relative to the one person the report was written
 for ("Jans 3 x Ur-Großvater").

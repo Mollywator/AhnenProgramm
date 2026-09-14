@@ -25,6 +25,7 @@ menu rather than a fresh import.
         Export/              finished pages, diagrams and books
         Stammbaum.html       the page for the family
         report.json          what to read, and who gathered it
+        pruefung.json        what the background check looked at and decided
       SB_Rodenberg/
         ...
 
