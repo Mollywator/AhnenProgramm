@@ -1341,6 +1341,31 @@ function renderList(){
    the same amount, so the sibling bars below keep every lane they had. */
 const NW = 208, NH = 88, PARTNER_GAP = 30, UNIT_GAP = 26, ROW_GAP = 172, PAD = 90;
 const LANE_TOP = 16, LANE_STEP = 11, HOP = 5;
+/* How far apart two vertical lines of different families have to stand. */
+const POST_GAP = 14;
+
+/* A child's line may not run down the same x as another family's parent line.
+   Where a child box happens to sit right under the middle of a foreign couple,
+   the two verticals lie on top of each other, the child's bar ends exactly
+   where the other couple's line comes down, and the picture reads as one
+   family: a T where there is none.  The hop cannot help, because a bar never
+   hops at its own end.  So the child's line is moved sideways, towards its own
+   parents - it still lands on the child's box, the two lines run up parallel,
+   and the foreign parent line now crosses the bar in the open, where it hops.
+   Parent lines stay put: they have to leave the couple from the middle. */
+function separatePosts(bars){
+  const anchors = bars.map(b => ({gen: b.gen, x: b.anchor, bar: b}));
+  for(const bar of bars){
+    for(const kid of bar.kids){
+      const clash = anchors.find(a => a.bar !== bar && a.gen === bar.gen
+                                   && Math.abs(a.x - kid.x) < POST_GAP);
+      if(!clash) continue;
+      kid.x = clash.x + (bar.anchor < clash.x ? -POST_GAP : POST_GAP);
+    }
+    bar.x0 = Math.min(bar.anchor, ...bar.kids.map(k => k.x));
+    bar.x1 = Math.max(bar.anchor, ...bar.kids.map(k => k.x));
+  }
+}
 // the generation labels float over the left edge of the stage - keep clear of them
 const RAIL_W = 200;
 
@@ -2144,6 +2169,8 @@ function renderTree(){
                  x0: Math.min(anchor, ...kids.map(k => k.x)),
                  x1: Math.max(anchor, ...kids.map(k => k.x))});
   }
+
+  separatePosts(bars);
 
   /* Every sibling bar gets a lane of its own, so two families never share one
      horizontal line.  Bars that do not overlap sideways can reuse a lane. */

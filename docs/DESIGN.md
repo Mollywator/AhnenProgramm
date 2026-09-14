@@ -339,6 +339,14 @@ So the crossings that remain are made legible instead of removed:
   the parents' row, which is why `ROW_GAP` is 158.
 - **A bar hops over any vertical line it has to cross**, the way a wiring diagram
   does — a 5px arc, so it is visible which of the two lines is continuous.
+- **Two families' vertical lines never share an x.** When a child stands right
+  under the middle of a foreign couple, its line would run down on top of that
+  couple's line and its bar would end exactly where the other line comes down —
+  a T that says the child is theirs, and a bar never hops at its own end. The
+  child's line is moved 14px (`POST_GAP`) towards its own parents instead: it
+  still lands on the box, the two lines run up in parallel, and the foreign line
+  crosses the bar in the open, where it hops. Parent lines never move, they
+  have to leave the couple from the middle.
 - **Hovering a person lights up every line that belongs to them** and dims the
   rest. In the crowded ancestor rows this is the fastest way to follow a single
   connection; hovering a person in the middle generations lights 11 lines and
