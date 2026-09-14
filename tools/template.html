@@ -377,6 +377,13 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
 /* The two little menus beside the view buttons. */
 .modewrap{position:relative;display:inline-flex;align-items:center;gap:2px}
 .nearmore{padding:0 5px;min-width:0;font-size:11px}
+/* The ▾ belongs to the near view's button: glued to it, pressed with it, and
+   set off from the next button by a gap - so it cannot be read as that one's. */
+.modewrap.split{gap:0;margin-right:6px}
+.modes .modewrap.split .nearmore{border-radius:0 2px 2px 0;border-left-color:var(--line, #0002)}
+.modes .modewrap.split [data-mode="nah"][aria-pressed="true"] + .nearmore{
+  background:var(--ink);color:var(--paper);border-color:var(--ink);border-left-color:color-mix(in srgb, var(--paper) 30%, var(--ink))}
+.modes .modewrap.split + .btn{border-radius:2px 0 0 2px}
 .popover{
   position:absolute;top:calc(100% + 6px);left:0;z-index:40;
   display:flex;flex-direction:column;gap:7px;white-space:nowrap;
@@ -940,7 +947,7 @@ html[data-edit] .editonly.flex{display:flex !important}
         <button class="btn tipped" data-design="sippen" aria-pressed="false" data-tip="Eingeheiratete Familien als eigene Inseln mit Namen">Sippen</button>
       </div>
       <div class="modes" id="modes">
-        <span class="modewrap">
+        <span class="modewrap split">
           <button class="btn tipped" data-mode="nah" aria-pressed="true" data-tip="Drei Generationen um den Mittelpunkt">Nahe Familie</button>
           <!-- Who else counts as "near" is a question that exists without any
                link: a brother-in-law is in this tree already.  So the menu
@@ -952,7 +959,8 @@ html[data-edit] .editonly.flex{display:flex !important}
             <label><input type="checkbox" data-near="schwiegereltern" checked> Schwiegereltern</label>
             <label><input type="checkbox" data-near="schwiegergross"> Schwiegergroßeltern</label>
             <label><input type="checkbox" data-near="schwager"> Schwager und Schwägerin</label>
-            <label><input type="checkbox" data-near="neffen"> Angeheiratete Neffen und Nichten</label>
+            <label><input type="checkbox" data-near="neffen" checked> Neffen und Nichten</label>
+            <label><input type="checkbox" data-near="neffenAngeheiratet"> Angeheiratete Neffen und Nichten</label>
           </span>
         </span>
         <button class="btn tipped" data-mode="ahnen" aria-pressed="false" data-tip="Nur die Vorfahren – die einzige Ansicht ganz ohne Kreuzungen">Ahnentafel</button>
@@ -1440,7 +1448,8 @@ const treeTitle = slug => {
 let showLinked = false;
 let locked = false;          // the view is locked: a box opens its sheet, the centre stays
 let spotlight = [];          // ids pointed out in the tree from the Prüfbericht
-const nearExtra = {schwiegereltern: true, schwiegergross: false, schwager: false, neffen: false};
+const nearExtra = {schwiegereltern: true, schwiegergross: false, schwager: false,
+                   neffen: true, neffenAngeheiratet: false};
 
 function nearSet(id){
   const seen = new Set([id]);
@@ -1469,10 +1478,11 @@ function nearSet(id){
     for(const s of p.spouses)
       for(const parent of (BY_ID.get(s) || {parents: []}).parents) add(parent);
 
-  /* The three optional degrees.  Off by default because the view is called
-     "near family" and each of them widens it by a whole branch; on when
-     somebody says so, for everybody in the tree and not only for the people
-     who happen to be linked. */
+  /* The optional degrees, for everybody in the tree and not only for the
+     people who happen to be linked.  The centre's own nephews and nieces are
+     blood family and on by default; everything that only comes through a
+     marriage is off, because the view is called "near family" and each of
+     those widens it by a whole branch of somebody else's family. */
   if(nearExtra.schwiegereltern && nearExtra.schwiegergross)
     for(const s of p.spouses)
       for(const parent of (BY_ID.get(s) || {parents: []}).parents)
@@ -1486,6 +1496,7 @@ function nearSet(id){
       for(const sib of (BY_ID.get(parent) || {children: []}).children)
         for(const sp of (BY_ID.get(sib) || {spouses: []}).spouses) add(sp);
   }
+  // the children of the centre's own brothers and sisters, with their partners
   if(nearExtra.neffen)
     for(const parent of p.parents)
       for(const sib of (BY_ID.get(parent) || {children: []}).children){
@@ -1495,6 +1506,18 @@ function nearSet(id){
           for(const sp of (BY_ID.get(kid) || {spouses: []}).spouses) add(sp);
         }
       }
+  /* The children of the partner's brothers and sisters.  They hang from
+     those siblings, so the menu only offers them together with "Schwager". */
+  if(nearExtra.schwager && nearExtra.neffenAngeheiratet)
+    for(const s of p.spouses)
+      for(const parent of (BY_ID.get(s) || {parents: []}).parents)
+        for(const sib of (BY_ID.get(parent) || {children: []}).children){
+          if(sib === s) continue;
+          for(const kid of (BY_ID.get(sib) || {children: []}).children){
+            add(kid);
+            for(const sp of (BY_ID.get(kid) || {spouses: []}).spouses) add(sp);
+          }
+        }
   return seen;
 }
 /* "Alle" means this tree's own people plus who married into it - and stops
@@ -1508,6 +1531,11 @@ function nearSet(id){
    step-parent case - the child came with them and is part of this household.
    Their parents are one step further out and drop off.
 
+   Downwards there is no limit: a child of somebody in this tree is this
+   tree's line, even when the record arrived with a link.  Linking a mother
+   into her own family carries her children along as her relatives - and they
+   are exactly as much hers over there as they are here.
+
    Without this the whole point of splitting the two families would be lost:
    open "Alle" and the second family stands in the middle of the first. */
 function alleSet(){
@@ -1515,6 +1543,11 @@ function alleSet(){
   const own = [];
   for(const p of DATA.people){
     if(!borrowed(p)){ keep.add(p.id); own.push(p.id); }
+  }
+  const stack = own.slice();
+  while(stack.length){
+    for(const kid of (BY_ID.get(stack.pop()) || {children: []}).children)
+      if(BY_ID.has(kid) && !keep.has(kid)){ keep.add(kid); own.push(kid); stack.push(kid); }
   }
   const married = new Set();
   for(const id of own)
@@ -3340,6 +3373,25 @@ function say(text, bad, ms){
   }, ms || (bad ? 8000 : 3400));
 }
 
+/* A result that has to outlive a reload: kept for this tab only and said once
+   the page is back.  Warnings come after the result, so they are the last
+   thing left on screen. */
+const NACH_LADEN = "stammbaum.nachLaden";
+function nachLadenSagen(text, hinweise){
+  try{ sessionStorage.setItem(NACH_LADEN, JSON.stringify({text, hinweise})); }catch(_){ /* no storage: nothing to carry */ }
+}
+window.addEventListener("load", () => {
+  let offen = null;
+  try{
+    offen = JSON.parse(sessionStorage.getItem(NACH_LADEN) || "null");
+    sessionStorage.removeItem(NACH_LADEN);
+  }catch(_){ return; }
+  if(!offen || !offen.text) return;
+  say(offen.text, false, 6000);
+  const hinweise = offen.hinweise || [];
+  if(hinweise.length) setTimeout(() => say(hinweise.join(" · "), true), 6000);
+});
+
 /* ---- the working copy ---------------------------------------------------- */
 /* `draft` is what the form edits.  `sidecar` collects every other person whose
    record has to move with it - the other half of a marriage, a child whose
@@ -3723,28 +3775,43 @@ function docRows(){
 
 /* ---- carrying out a link -------------------------------------------------- */
 async function runLink(){
-  if(!linkDraft || !linkDraft.ziel) return;
+  if(!linkDraft) return;
   const info = document.getElementById("linkInfo");
+  /* The button used to be greyed out until a tree was picked - and with more
+     than one other tree nothing is picked, so a click did nothing at all and
+     said nothing either.  It stays clickable and says what is missing. */
+  if(!linkDraft.ziel){
+    if(info) info.textContent = "Kein Stammbaum gewählt";
+    say("✗ Nicht verknüpft – erst oben unter „In welchen Stammbaum“ einen wählen.", true);
+    return;
+  }
   const go = document.getElementById("linkGo");
   if(go) go.disabled = true;
   if(info) info.textContent = "Wird verknüpft …";
+  busy("Wird verknüpft …");
   try{
     const r = await api("/api/link?k=" + encodeURIComponent(EDIT.token),
       {person: linkDraft.person, ziel: linkDraft.ziel, gruppen: linkDraft.gruppen,
        mit: linkDraft.mit, mitAngehoerige: linkDraft.mitAngehoerige});
-    (r.hinweise || []).forEach(h => say(h, true));
     const wohin = treeTitle(linkDraft.ziel);
-    say(r.mitgenommen
-      ? `Verknüpft mit „${wohin}“ – ${r.mitgenommen + 1} Personen stehen jetzt in beiden.`
-      : `Verknüpft mit „${wohin}“.`);
+    const text = r.angelegt
+      ? `✓ Verknüpft mit „${wohin}“ – ${r.angelegt} ${r.angelegt === 1 ? "Person" : "Personen"} dort neu angelegt.`
+      : `✓ Verknüpft mit „${wohin}“ – es war schon alles dort, nichts Neues angelegt.`;
+    // The answer used to be said and then wiped by the reload a moment later,
+    // so nobody ever saw whether anything had happened.  It is kept across the
+    // reload and said once the page is back.
+    nachLadenSagen(text, r.hinweise || []);
     // The tree in hand changed underneath us; the page is rebuilt from the
     // server rather than patched, so the diagram and the register cannot show
-    // a state the file does not have.
-    reloadSaying();
+    // a state the file does not have.  The bar stays only while there is
+    // something new to load.
+    if(r.angelegt) busy("Verknüpft – lädt neu …"); else busyOff();
+    location.reload();
   }catch(err){
+    busyOff();
     if(go) go.disabled = false;
-    if(info) info.textContent = "";
-    say("Nicht verknüpft – " + err.message, true);
+    if(info) info.textContent = "Nicht verknüpft";
+    say("✗ Nicht verknüpft – " + err.message, true);
   }
 }
 
@@ -3997,7 +4064,7 @@ function linkDialogHTML(){
       ${bekannt}
     </div>
     <div class="sheet-foot">
-      <button class="btn primary" id="linkGo" ${d.ziel ? "" : "disabled"}>Verknüpfen</button>
+      <button class="btn primary" id="linkGo">Verknüpfen</button>
       <button class="btn" data-close="1">Abbrechen</button>
       <span class="grow"></span>
       <span class="saveinfo" id="linkInfo"></span>
@@ -4045,7 +4112,15 @@ function openLinkDialog(id){
   const vorbelegung = ((EDIT.vorbelegung) || []).slice();
   const person = BY_ID.get(id) || {};
   const alleBereiche = ((EDIT.feldgruppen) || []).map(g => g.id);
-  linkDraft = {person: id, ziel: others.length === 1 ? others[0].slug : null,
+  // The tree picked to begin with: one she already stands in, else the only
+  // other tree that has anybody in it.  An empty tree left over from trying
+  // things out must not be what makes the choice fall away.
+  const schonDrin = otherTrees(person).map(t => t.slug).find(s => others.some(o => o.slug === s));
+  const gefuellt = others.filter(t => t.personen > 0);
+  const vorwahl = schonDrin
+    || (others.length === 1 ? others[0].slug : null)
+    || (gefuellt.length === 1 ? gefuellt[0].slug : null);
+  linkDraft = {person: id, ziel: vorwahl,
                // what comes along starts from this tree's default, for her and
                // for the relatives alike; both can be changed right here
                mit: vorbelegung.slice(), mitAngehoerige: vorbelegung.slice(),
@@ -5164,12 +5239,16 @@ document.addEventListener("keydown", e => {
       nearMenu.hidden = true;
       nearBtn.setAttribute("aria-expanded", "false");
     });
-    // grandparents-in-law hang from the parents-in-law: greyed out without them
-    const grossBox = nearMenu.querySelector('input[data-near="schwiegergross"]');
+    // grandparents-in-law hang from the parents-in-law, and the married-in
+    // nephews from the partner's siblings: greyed out without what carries them
+    const abhaengig = {schwiegergross: "schwiegereltern", neffenAngeheiratet: "schwager"};
     const syncGross = () => {
-      if(!grossBox) return;
-      grossBox.disabled = !nearExtra.schwiegereltern;
-      grossBox.closest("label").classList.toggle("off", grossBox.disabled);
+      for(const [key, braucht] of Object.entries(abhaengig)){
+        const box = nearMenu.querySelector(`input[data-near="${key}"]`);
+        if(!box) continue;
+        box.disabled = !nearExtra[braucht];
+        box.closest("label").classList.toggle("off", box.disabled);
+      }
     };
     nearMenu.querySelectorAll("input[data-near]").forEach(box =>
       box.addEventListener("change", () => {
@@ -5310,7 +5389,7 @@ document.getElementById("helpBtn").addEventListener("click", () => {
         <div class="sec">
           <h3>Die vier Ansichten</h3>
           <ul>
-            <li><span>Nahe Familie</span><span>Drei Generationen um den Mittelpunkt, dazu die Schwiegereltern (im Menü ▾ abschaltbar). Übersichtlich, ohne eine einzige gekreuzte Linie.</span></li>
+            <li><span>Nahe Familie</span><span>Drei Generationen um den Mittelpunkt, dazu Neffen, Nichten und die Schwiegereltern. Im Menü ▾ daneben lässt sich das abschalten – und Schwager, Schwägerin und die angeheirateten Neffen und Nichten dazunehmen. Übersichtlich, ohne eine einzige gekreuzte Linie.</span></li>
             <li><span>Ahnentafel</span><span>Nur die Vorfahren. Die Vorfahren eines Menschen sind ein echter Baum, deshalb ist das die einzige Ansicht, die <b>garantiert ohne Kreuzungen</b> auskommt. Zum Ausdrucken die richtige.</span></li>
             <li><span>Ganze Linie</span><span>Alle Blutsverwandten des Mittelpunkts samt ihrer Ehepartner.</span></li>
             <li><span>Alle</span><span>Jede Person aus dem Bericht. Sehr groß – am besten mit dem Legenden-Filter und der Hervorhebung arbeiten.</span></li>
