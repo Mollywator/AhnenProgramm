@@ -356,6 +356,7 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
 }
 .popover[hidden]{display:none}
 .popover label{display:flex;align-items:center;gap:7px;cursor:pointer}
+.popover label.off{opacity:.45;cursor:default}
 .manual h3{margin-top:0}
 .manual p{margin:0 0 10px;font-size:15.5px;line-height:1.6;color:var(--ink-2);max-width:62ch}
 .manual p:last-child{margin-bottom:0}
@@ -871,6 +872,7 @@ html[data-edit] .editonly.flex{display:flex !important}
           <button class="btn iconbtn nearmore" id="nearMore" aria-expanded="false"
                   title="Wer noch zur nahen Familie zählt">▾</button>
           <span class="popover" id="nearMenu" hidden>
+            <label><input type="checkbox" data-near="schwiegereltern" checked> Schwiegereltern</label>
             <label><input type="checkbox" data-near="schwiegergross"> Schwiegergroßeltern</label>
             <label><input type="checkbox" data-near="schwager"> Schwager und Schwägerin</label>
             <label><input type="checkbox" data-near="neffen"> Angeheiratete Neffen und Nichten</label>
@@ -1330,7 +1332,7 @@ const treeTitle = slug => {
    another tree, and which optional degrees the near view reaches.  Both are
    per reader and per browser - they change what is on screen, never the file. */
 let showLinked = false;
-const nearExtra = {schwiegergross: false, schwager: false, neffen: false};
+const nearExtra = {schwiegereltern: true, schwiegergross: false, schwager: false, neffen: false};
 
 function nearSet(id){
   const seen = new Set([id]);
@@ -1348,17 +1350,22 @@ function nearSet(id){
     add(child);
     for(const gc of (BY_ID.get(child) || {children: []}).children) add(gc);
   }
-  // partners of everybody already on the stage, plus the centre's own in-laws
+  // partners of everybody already on the stage
   for(const x of Array.from(seen))
     for(const s of BY_ID.get(x).spouses) add(s);
-  for(const s of p.spouses)
-    for(const parent of (BY_ID.get(s) || {parents: []}).parents) add(parent);
+
+  /* The centre's own in-laws are on by default - they have always been part
+     of this view - but can be switched off for a picture of one side only.
+     The grandparents-in-law hang from them, so without them they go too. */
+  if(nearExtra.schwiegereltern)
+    for(const s of p.spouses)
+      for(const parent of (BY_ID.get(s) || {parents: []}).parents) add(parent);
 
   /* The three optional degrees.  Off by default because the view is called
      "near family" and each of them widens it by a whole branch; on when
      somebody says so, for everybody in the tree and not only for the people
      who happen to be linked. */
-  if(nearExtra.schwiegergross)
+  if(nearExtra.schwiegereltern && nearExtra.schwiegergross)
     for(const s of p.spouses)
       for(const parent of (BY_ID.get(s) || {parents: []}).parents)
         for(const gp of (BY_ID.get(parent) || {parents: []}).parents) add(gp);
@@ -4885,7 +4892,7 @@ document.addEventListener("keydown", e => {
   /* The two little menus beside the view buttons.  The "Alle" one shows
      itself whenever that view is on, because its single switch is about what
      is on screen right now; the "near" one is opened deliberately, because
-     its three are settings somebody goes looking for. */
+     its four are settings somebody goes looking for. */
   const nearBtn = document.getElementById("nearMore");
   const nearMenu = document.getElementById("nearMenu");
   if(nearBtn && nearMenu){
@@ -4900,11 +4907,20 @@ document.addEventListener("keydown", e => {
       nearMenu.hidden = true;
       nearBtn.setAttribute("aria-expanded", "false");
     });
+    // grandparents-in-law hang from the parents-in-law: greyed out without them
+    const grossBox = nearMenu.querySelector('input[data-near="schwiegergross"]');
+    const syncGross = () => {
+      if(!grossBox) return;
+      grossBox.disabled = !nearExtra.schwiegereltern;
+      grossBox.closest("label").classList.toggle("off", grossBox.disabled);
+    };
     nearMenu.querySelectorAll("input[data-near]").forEach(box =>
       box.addEventListener("change", () => {
         nearExtra[box.dataset.near] = box.checked;
+        syncGross();
         if(mode === "nah") renderTree();
       }));
+    syncGross();
   }
   const linkedBox = document.getElementById("showLinked");
   if(linkedBox) linkedBox.addEventListener("change", () => {
@@ -5027,7 +5043,7 @@ document.getElementById("helpBtn").addEventListener("click", () => {
         <div class="sec">
           <h3>Die vier Ansichten</h3>
           <ul>
-            <li><span>Nahe Familie</span><span>Drei Generationen um den Mittelpunkt, dazu die Schwiegereltern. Übersichtlich, ohne eine einzige gekreuzte Linie.</span></li>
+            <li><span>Nahe Familie</span><span>Drei Generationen um den Mittelpunkt, dazu die Schwiegereltern (im Menü ▾ abschaltbar). Übersichtlich, ohne eine einzige gekreuzte Linie.</span></li>
             <li><span>Ahnentafel</span><span>Nur die Vorfahren. Die Vorfahren eines Menschen sind ein echter Baum, deshalb ist das die einzige Ansicht, die <b>garantiert ohne Kreuzungen</b> auskommt. Zum Ausdrucken die richtige.</span></li>
             <li><span>Ganze Linie</span><span>Alle Blutsverwandten des Mittelpunkts samt ihrer Ehepartner.</span></li>
             <li><span>Alle</span><span>Jede Person aus dem Bericht. Sehr groß – am besten mit dem Legenden-Filter und der Hervorhebung arbeiten.</span></li>

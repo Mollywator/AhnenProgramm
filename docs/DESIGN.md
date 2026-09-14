@@ -160,7 +160,8 @@ picture only — 29 ms for eighteen of them.
   labelled *Familie Hemken · über Cordula*, so it is obvious that the connection
   runs through one marriage and not through a second set of parents.
 - Four scopes: *Nahe Familie* (three generations around the centre plus the
-  centre's parents-in-law), *Ahnentafel* (see below),
+  centre's parents-in-law; the ▾ menu switches the parents-in-law off and
+  grandparents-in-law, siblings-in-law and nephews by marriage on), *Ahnentafel* (see below),
   *Ganze Linie* (every blood relative of the centre plus their partners) and
   *Alle* (all 326). The big views run to roughly 23000 × 1900 pixels, so the
   diagram pans freely by dragging and zooms from 4 % to 400 %; below 62 % the
