@@ -235,6 +235,10 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
 /* A partnership that is not a marriage: one line, dashed, so it reads as the
    lesser claim beside the double line that has always meant a marriage. */
 .wires path.marriage.partnered{stroke-dasharray:6 4}
+/* An engagement: finer still, a row of dots.  A couple that has ended keeps
+   its line - it happened - but it steps back behind the ones that last. */
+.wires path.marriage.engaged{stroke-dasharray:1.5 3.5;stroke-linecap:round}
+.wires path.marriage.ended{opacity:.4}
 .wires path.lit{stroke:var(--accent);stroke-width:2}
 
 .box{
@@ -603,6 +607,11 @@ html[data-theme="abend"] .scrim{background:rgba(0,0,0,.7)}
 .plink:hover{border-color:var(--accent);color:var(--accent)}
 .plink small{font-family:var(--sans);font-size:11.5px;color:var(--ink-3);margin-left:6px;letter-spacing:.05em}
 .plink:hover small{color:var(--accent)}
+.ties{display:grid;gap:12px}
+.tieline{display:grid;gap:4px;justify-items:start}
+.tiewhat{font-family:var(--sans);font-size:13px;letter-spacing:.03em;color:var(--ink-2)}
+.tienote{margin:0;white-space:pre-wrap;color:var(--ink-3);font-size:14.5px;
+  border-left:2px solid var(--rule-2);padding-left:9px}
 .timeline{list-style:none;margin:0;padding:0}
 .timeline li{display:grid;grid-template-columns:62px 108px minmax(0,1fr);gap:12px;padding:5px 0;border-bottom:1px dotted var(--rule)}
 .timeline li:last-child{border-bottom:0}
@@ -779,6 +788,19 @@ html[data-edit] .editonly.flex{display:flex !important}
 .chipx small{font-family:var(--sans);font-size:11px;color:var(--ink-3);letter-spacing:.05em}
 .chipx button{border:0;background:none;color:var(--ink-3);cursor:pointer;font-size:15px;line-height:1;padding:0 3px}
 .chipx button:hover{color:var(--accent)}
+/* When, where and how a couple ended - hung under the partner's name, the
+   beginning on the left and the end to the right of it. */
+.tie{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px 20px;
+  margin:-7px 0 4px 14px;padding:10px 12px;background:var(--paper-2);
+  border:1px solid var(--rule-2);border-top:0;border-radius:0 0 2px 2px;
+}
+.tiecol{display:grid;gap:8px;align-content:start}
+.tienotes{grid-column:1/-1}
+.notebtn{font-size:12px;justify-self:start}
+/* a note that is there has to be seen without opening it */
+.notebtn.has{color:var(--accent);border-color:var(--accent)}
+.tiemark{margin:0}
 .picker{position:relative;margin-top:8px}
 .pickmenu{
   position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:30;max-height:262px;overflow-y:auto;
@@ -1012,7 +1034,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.10.0";
+const VERSION = "1.13.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -1218,9 +1240,16 @@ function relation(from, other){
      record, because the two always agree - see `normaliseRoles`. */
   if(a.spouses.includes(other)){
     const said = (a.spouse_kind || {})[other] || (b.spouse_kind || {})[from];
-    return said === "partner"
-      ? {label: MF(b, "Partner", "Partnerin", "Partner"), kind: "ehe"}
-      : {label: MF(b, "Ehemann", "Ehefrau", "Ehepartner"), kind: "ehe"};
+    const end = ((a.spouse_info || {})[other] || (b.spouse_info || {})[from] || {}).end;
+    if(end === "divorced") return {label: MF(b, "geschiedener Ehemann", "geschiedene Ehefrau",
+                                               "geschiedener Ehepartner"), kind: "ehe"};
+    if(said === "partner" || said === "engaged"){
+      if(end) return {label: MF(b, "Ex-Partner", "Ex-Partnerin", "Ex-Partner"), kind: "ehe"};
+      return said === "engaged"
+        ? {label: MF(b, "Verlobter", "Verlobte", "Verlobt"), kind: "ehe"}
+        : {label: MF(b, "Partner", "Partnerin", "Partner"), kind: "ehe"};
+    }
+    return {label: MF(b, "Ehemann", "Ehefrau", "Ehepartner") + (end ? " (getrennt)" : ""), kind: "ehe"};
   }
 
   const mySiblings = siblingsOf(from);
@@ -2182,8 +2211,11 @@ function renderTree(){
       const x2 = boxX(unit, b) + dx;
       const mixed = groups.kind.get(a) !== groups.kind.get(b);
       const said = (BY_ID.get(a).spouse_kind || {})[b] || (BY_ID.get(b).spouse_kind || {})[a];
-      const wed = said !== "partner";
-      const cls = ["marriage", mixed ? "bridge" : "", wed ? "" : "partnered"]
+      const wed = said !== "partner" && said !== "engaged";
+      const ended = !!((BY_ID.get(a).spouse_info || {})[b] || (BY_ID.get(b).spouse_info || {})[a] || {}).end;
+      const cls = ["marriage", mixed ? "bridge" : "",
+                   wed ? "" : said === "engaged" ? "partnered engaged" : "partnered",
+                   ended ? "ended" : ""]
         .filter(Boolean).join(" ");
       const kin = ` data-kin="${a} ${b}"`;
       if(wed){
@@ -2562,7 +2594,14 @@ function sheetHTML(p){
       `<div class="fact"><dt>${esc(f[0])}</dt><dd>${esc(f[1])}</dd></div>`).join("")}</dl></div>`);
 
   if(p.parents.length) sections.push(`<div class="sec"><h3>Eltern</h3><div class="people-links">${linkList(p.parents)}</div></div>`);
-  if(p.spouses.length) sections.push(`<div class="sec"><h3>Ehe und Partnerschaft</h3><div class="people-links">${linkList(p.spouses)}</div></div>`);
+  if(p.spouses.length) sections.push(`<div class="sec"><h3>Ehe und Partnerschaft</h3><div class="ties">${
+    p.spouses.filter(i => BY_ID.has(i)).map(i => {
+      const t = tieInfo(p.id, i) || {};
+      const what = tieText(p.id, i);
+      return `<div class="tieline"><div class="people-links">${linkList([i])}</div>${
+        what ? `<span class="tiewhat">${esc(what)}</span>` : ""}${
+        t.note ? `<p class="tienote">${esc(t.note)}</p>` : ""}</div>`;
+    }).join("")}</div></div>`);
   if(p.children.length) sections.push(`<div class="sec"><h3>Kinder</h3><div class="people-links">${linkList(p.children)}</div></div>`);
 
   if(p.residences && p.residences.length) sections.push(`<div class="sec"><h3>Wohnorte</h3>
@@ -2860,7 +2899,7 @@ function blankPerson(id){
     bio: null, note_text: null, source_text: null,
     notes: [], sources: [], photo: null,
     events: [], page: null, birth: null, death: null,
-    spouse_kind: {}, parent_kind: {},
+    spouse_kind: {}, parent_kind: {}, spouse_info: {},
   }, EXTRA_BLANK());
 }
 
@@ -2901,8 +2940,12 @@ function normaliseLinks(people){
 
 /* What a tie may be called.  Anything else in the file counts as unsaid - a
    typo must not become something the diagram then draws. */
-const SPOUSE_KINDS = ["marriage", "partner"];
+const SPOUSE_KINDS = ["marriage", "engaged", "partner"];
 const PARENT_KINDS = ["blood", "step"];
+/* Where two records disagree, the stronger claim wins - see edits.KIND_STRENGTH. */
+const KIND_STRENGTH = {partner: 1, engaged: 2, marriage: 3};
+/* How a couple ended.  Widowed is not one of them: it follows from a death date. */
+const TIE_ENDS = ["separated", "divorced"];
 
 /* The mirror of edits.normalise_roles.  Being married is a fact about the pair,
    so it is written on both records and the two have to agree; where a file
@@ -2919,17 +2962,240 @@ function normaliseRoles(people, byId){
   for(const p of people){
     p.spouse_kind = keep(p.spouse_kind, p.spouses, SPOUSE_KINDS);
     p.parent_kind = keep(p.parent_kind, p.parents, PARENT_KINDS);
+    const info = {};
+    for(const [k, v] of Object.entries(p.spouse_info || {})){
+      const t = p.spouses.includes(+k) ? cleanTie(v) : null;
+      if(t) info[k] = t;
+    }
+    p.spouse_info = info;
   }
+  const weight = t => Object.values(t || {}).filter(v => v !== null && v !== undefined).length;
   for(const p of people)
     for(const spouse of p.spouses){
       const other = byId.get(spouse);
       const mine = p.spouse_kind[spouse], theirs = other.spouse_kind[p.id];
       if(mine === theirs) continue;
-      const agreed = (mine === "marriage" || theirs === "marriage") ? "marriage" : (mine || theirs);
+      const agreed = [mine, theirs].filter(Boolean)
+        .sort((x, y) => KIND_STRENGTH[y] - KIND_STRENGTH[x])[0];
       if(!agreed) continue;
       p.spouse_kind[spouse] = agreed;
       other.spouse_kind[p.id] = agreed;
     }
+  for(const p of people)
+    for(const spouse of p.spouses){
+      const other = byId.get(spouse);
+      const mine = p.spouse_info[spouse], theirs = other.spouse_info[p.id];
+      if(JSON.stringify(mine) === JSON.stringify(theirs)) continue;
+      const take = (weight(mine) > weight(theirs) || (weight(mine) === weight(theirs) && p.id < spouse))
+        ? mine : theirs;
+      if(take){
+        p.spouse_info[spouse] = JSON.parse(JSON.stringify(take));
+        other.spouse_info[p.id] = JSON.parse(JSON.stringify(take));
+      }
+    }
+}
+
+/* ---- when, where and how a couple ended ---------------------------------- */
+/* The mirror of edits.clean_date / edits.clean_tie.  An empty date is null, and
+   a tie with nothing in it is no entry at all. */
+function cleanDate(raw){
+  if(!raw || typeof raw !== "object") return null;
+  const n = v => Number.isInteger(v) ? v : (typeof v === "string" && /^\d+$/.test(v.trim()) ? +v : null);
+  const out = {year: n(raw.year), month: n(raw.month), day: n(raw.day)};
+  if(!out.year && !out.month && !out.day) return null;
+  out.approx = !!raw.approx;
+  return out;
+}
+
+function cleanTie(raw){
+  if(!raw || typeof raw !== "object") return null;
+  const text = v => (v == null || String(v).trim() === "") ? null : String(v).trim();
+  const end = TIE_ENDS.includes(raw.end) ? raw.end : null;
+  const out = {since: cleanDate(raw.since), place: text(raw.place), end,
+               until: end ? cleanDate(raw.until) : null, note: text(raw.note)};
+  return Object.values(out).some(v => v !== null) ? out : null;
+}
+
+/* What is known about this couple, asked from either side. */
+function tieInfo(a, b){
+  const rec = id => (draft || sidecar.size) ? lookup(id) : BY_ID.get(+id);
+  const p = rec(a), q = rec(b);
+  return (p && (p.spouse_info || {})[b]) || (q && (q.spouse_info || {})[a]) || null;
+}
+
+/* "etwa 1920", "12. Mai 2015" - "um" reads wrong after "seit". */
+function tieDate(d){
+  if(!d) return "";
+  const plain = dateText(Object.assign({}, d, {approx: false}));
+  return plain ? (d.approx ? "etwa " : "") + plain : "";
+}
+
+/* A partner who died left this person a widow or widower - unless this person
+   died first, or the two were only engaged. */
+function widowDate(a, b){
+  const rec = id => (draft || sidecar.size) ? lookup(id) : BY_ID.get(+id);
+  const me = rec(a), other = rec(b);
+  if(!other || !other.death || !other.death.year) return "";
+  if(me && me.death && me.death.year && me.death.year < other.death.year) return "";
+  if(spouseKind(a, b) === "engaged" || (tieInfo(a, b) || {}).end) return "";
+  return tieDate(other.death);
+}
+
+/* One line for the sheet: "Ehe seit 12. Mai 2015 in Aurich · geschieden 2020". */
+function tieText(a, b){
+  const kind = spouseKind(a, b);
+  const t = tieInfo(a, b) || {};
+  const word = {marriage: "Ehe", engaged: "Verlobt", partner: "Partnerschaft"}[kind];
+  const since = tieDate(t.since);
+  const bits = [word + (since ? (t.end ? " ab " : " seit ") + since : "") + (t.place ? " in " + t.place : "")];
+  if(t.end) bits.push((t.end === "divorced" ? "geschieden" : "getrennt")
+                      + (tieDate(t.until) ? " " + tieDate(t.until) : ""));
+  const widow = widowDate(a, b);
+  if(widow) bits.push("verwitwet seit " + widow);
+  return bits.join(" · ");
+}
+
+/* ---- the couple in both life stories --------------------------------------
+   The dates of a couple are the same facts as the stations "Heirat" or
+   "Scheidung" in a life story, so the two are linked, never kept twice.
+
+   Linking works both ways.  A station somebody already had is *adopted*: it gets
+   a `tie`, and the couple takes its date where it had none - the station itself
+   is not rewritten.  A date entered on the couple becomes a station of its own,
+   marked `auto`, holding a copy of what it was written with.  As long as the
+   station still matches that copy, the program keeps it in step; the moment
+   anybody changes it, it is theirs, and the program never touches it again.
+   Only the second half can be switched off, under Optionen. */
+const STATION_START = {heirat: "marriage", hochzeit: "marriage", trauung: "marriage",
+  "eheschließung": "marriage", eheschliessung: "marriage",
+  verlobung: "engaged", partnerschaft: "partner"};
+const STATION_END = {scheidung: "divorced", trennung: "separated"};
+const STATION_WORD = {marriage: "Heirat", engaged: "Verlobung", partner: "Partnerschaft",
+  divorced: "Scheidung", separated: "Trennung"};
+const STATION_FIELDS = ["kind", "year", "month", "day", "approx", "place"];
+
+function stationRole(kind){
+  const k = String(kind || "").trim().toLowerCase();
+  if(STATION_START[k]) return ["start", STATION_START[k]];
+  if(STATION_END[k]) return ["end", STATION_END[k]];
+  return null;
+}
+
+/* The mirror of edits.adopt_stations, for one record in the form. */
+function adoptStations(p){
+  const spouses = p.spouses || [];
+  if(!spouses.length) return;
+  const order = {marriage: 0, divorced: 1, separated: 2, engaged: 3, partner: 4};
+  const loose = (p.events || []).filter(e => e && !e.tie && stationRole(e.kind))
+    .sort((x, y) => order[stationRole(x.kind)[1]] - order[stationRole(y.kind)[1]]);
+  for(const ev of loose){
+    const [part, says] = stationRole(ev.kind);
+    const named = (ev.with || []).map(Number).filter(Number.isFinite);
+    const hits = named.filter(s => spouses.includes(s));
+    let spouse;
+    if(hits.length === 1) spouse = hits[0];
+    else if(!named.length && spouses.length === 1) spouse = spouses[0];
+    else continue;
+    ev.tie = {with: spouse, part, auto: null};
+    if(!named.length) ev.with = [spouse];
+
+    let kind = (p.spouse_kind || {})[spouse] || ((lookup(spouse) || {}).spouse_kind || {})[p.id] || null;
+    const tie = cleanTie(tieInfo(p.id, spouse)) || {since: null, place: null, end: null, until: null, note: null};
+    const date = cleanDate(ev);
+    if(part === "start"){
+      if(says === "marriage" || (says === "engaged" && kind === "partner")) kind = says;
+      if(says === (kind || "marriage")){
+        if(!tie.since) tie.since = date;
+        if(!tie.place && ev.place) tie.place = String(ev.place).trim() || null;
+      }
+    } else {
+      if(!tie.end) tie.end = says;
+      if(tie.end === says && !tie.until) tie.until = date;
+    }
+    const clean = cleanTie(tie);
+    const other = touch(spouse);
+    for(const [rec, key] of [[p, spouse], [other, p.id]]){
+      if(!rec) continue;
+      rec.spouse_kind = rec.spouse_kind || {};
+      rec.spouse_info = rec.spouse_info || {};
+      if(kind) rec.spouse_kind[key] = kind;
+      if(clean) rec.spouse_info[key] = JSON.parse(JSON.stringify(clean));
+    }
+  }
+}
+
+function stationShape(e){
+  const out = {};
+  for(const f of STATION_FIELDS)
+    out[f] = f === "approx" ? !!e[f] : (e[f] == null || e[f] === "" ? null : e[f]);
+  return out;
+}
+
+/* The stations this couple's dates stand for, by end. */
+function wantedStations(kind, tie){
+  const t = tie || {};
+  const out = {};
+  if(t.since) out.start = stationShape({kind: STATION_WORD[kind], year: t.since.year, month: t.since.month,
+    day: t.since.day, approx: t.since.approx, place: t.place});
+  if(t.end && t.until) out.end = stationShape({kind: STATION_WORD[t.end], year: t.until.year,
+    month: t.until.month, day: t.until.day, approx: t.until.approx, place: null});
+  return out;
+}
+
+/* Brings one life story in step with one couple.  Returns whether it changed. */
+function syncStations(p, spouse, kind, tie){
+  const want = wantedStations(kind, tie);
+  const same = (x, y) => JSON.stringify(stationShape(x)) === JSON.stringify(stationShape(y));
+  let changed = false;
+  p.events = p.events || [];
+  for(const part of ["start", "end"]){
+    const linked = p.events.filter(e => e && e.tie && +e.tie.with === spouse && e.tie.part === part);
+    if(linked.some(e => !e.tie.auto)) continue;       // somebody's own station
+    const auto = linked[0];
+    if(auto){
+      if(!same(auto, auto.tie.auto) || String(auto.text || "").trim()){
+        auto.tie.auto = null;                          // changed by hand: it is theirs now
+        changed = true;
+      } else if(!want[part]){
+        p.events.splice(p.events.indexOf(auto), 1);
+        changed = true;
+      } else if(!same(auto, want[part])){
+        Object.assign(auto, want[part]);
+        auto.tie.auto = want[part];
+        changed = true;
+      }
+      continue;
+    }
+    if(!want[part]) continue;
+    p.events.push(Object.assign({}, want[part],
+      {with: [spouse], text: null, tie: {with: spouse, part, auto: want[part]}}));
+    changed = true;
+  }
+  return changed;
+}
+
+/* Run on saving.  A partner's record joins the save only if their life story
+   actually changes - a record written to the overlay overrides the report for
+   good, so nobody is written just for having been looked at. */
+function syncTies(){
+  const me = draft.id;
+  const info = draft.spouse_info || {};
+  for(const k of Object.keys(info)){
+    const clean = (draft.spouses || []).includes(+k) ? cleanTie(info[k]) : null;
+    if(clean) info[k] = clean; else delete info[k];
+  }
+  draft.spouse_info = info;
+  adoptStations(draft);
+  if(!EDIT || EDIT.stationenAuto === false) return;
+  for(const spouse of draft.spouses || []){
+    const kind = spouseKind(me, spouse);
+    const tie = (draft.spouse_info || {})[spouse] || null;
+    syncStations(draft, spouse, kind, tie);
+    const known = lookup(spouse);
+    if(!known) continue;
+    const there = sidecar.get(spouse) || JSON.parse(JSON.stringify(fillMissing(known)));
+    if(syncStations(there, me, kind, tie) && !sidecar.has(spouse)) sidecar.set(spouse, there);
+  }
 }
 
 /* What this pair is called, asked from either side.
@@ -2945,7 +3211,7 @@ function normaliseRoles(people, byId){
 function spouseKind(a, b){
   const p = lookup(a), q = lookup(b);
   const said = (p && (p.spouse_kind || {})[b]) || (q && (q.spouse_kind || {})[a]);
-  return said === "partner" ? "partner" : "marriage";
+  return said === "partner" || said === "engaged" ? said : "marriage";
 }
 
 /* How this person came by that parent.  "" where nothing has been said, which
@@ -3636,8 +3902,50 @@ const SIBLING_ROLES = [
 
 const SPOUSE_ROLES = [
   {v: "partner",  t: "Partnerschaft"},
+  {v: "engaged",  t: "Verlobt"},
   {v: "marriage", t: "Ehe"},
 ];
+
+/* Which notes are opened in the form.  Not part of any record; a note that has
+   text in it is shown anyway, so these only matter for empty ones. */
+let openTieNotes = new Set();
+let openEventNotes = new Set();
+
+/* Under each partner: when it began and where, and - to the right of it -
+   whether and when it ended.  A second marriage after a divorce is simply the
+   next partner's row; the same two people marrying twice go into the note. */
+function tieHTML(id){
+  const base = "spouse_info." + id;
+  const t = (draft.spouse_info || {})[id] || {};
+  const kind = spouseKind(draft.id, id);
+  const end = t.end || "";
+  const hasNote = !!String(t.note || "").trim();
+  const ends = [["", "besteht"], ["separated", "getrennt"], ["divorced", "geschieden"]]
+    .filter(([v]) => v !== "divorced" || kind === "marriage" || end === "divorced")
+    .map(([v, l]) => `<option value="${v}"${v === end ? " selected" : ""}>${l}</option>`).join("");
+  const widow = !end ? widowDate(draft.id, id) : "";
+  return `<div class="tie">
+    <div class="tiecol">
+      ${dateField({marriage: "Verheiratet seit", engaged: "Verlobt seit", partner: "Zusammen seit"}[kind], base + ".since")}
+      ${checkField("ungefähr", base + ".since.approx")}
+      ${textField(kind === "marriage" ? "Ort der Heirat" : "Ort", base + ".place")}
+    </div>
+    <div class="tiecol">
+      <label class="field"><span>Ende</span><select data-k="${base}.end">${ends}</select></label>
+      ${end ? dateField(end === "divorced" ? "Geschieden seit" : "Getrennt seit", base + ".until")
+              + checkField("ungefähr", base + ".until.approx")
+            : widow ? `<p class="hintline">Verwitwet seit ${esc(widow)} – aus dem Sterbedatum von
+                ${esc(personLabel(id))}.</p>` : ""}
+    </div>
+    <div class="tienotes">
+      ${openTieNotes.has(id)
+        ? areaField("Notiz zu dieser Verbindung", base + ".note",
+            {rows: 4, placeholder: "z. B. 2016 kirchlich getraut, 2019 getrennt, 2021 wieder geheiratet …"})
+        : `<button type="button" class="btn notebtn${hasNote ? " has" : ""}" data-tienote="${id}">${
+            hasNote ? "✎ Notiz vorhanden – ansehen" : "＋ Notiz hinzufügen"}</button>`}
+    </div>
+  </div>`;
+}
 
 /* Which entry is standing.  A parent nobody has said anything about is shown by
    their sex alone - after the conversion that is every parent in the file, and
@@ -3686,7 +3994,7 @@ function chipsHTML(role, ids){
       <small>${esc(lifespan(lookup(id)) || "#" + id)}</small>
       ${pick}
       <button type="button" class="chipdrop" data-unlink="${role}:${id}"
-        aria-label="Verbindung lösen">×</button></span>`;
+        aria-label="Verbindung lösen">×</button></span>${role === "spouses" ? tieHTML(id) : ""}`;
   }).join("")}</div>`;
 }
 
@@ -3738,9 +4046,19 @@ function residenceCards(){
     </div></div>`).join("");
 }
 
+/* The text box only where there is text, or where somebody asked for one: most
+   stations are a word, a place and a year, and an empty box under every one of
+   them made the list twice as long as what it said. */
 function eventCards(){
   const list = draft.events || [];
-  return list.map((e, i) => `<div class="card">
+  return list.map((e, i) => {
+    const tie = e.tie && lookup(+e.tie.with) ? e.tie : null;
+    const belongs = tie ? `<p class="hintline tiemark">${tie.auto
+        ? "Eingetragen aus „Ehe und Partnerschaft“ mit " + esc(personLabel(+tie.with))
+          + " – geht mit, solange hier nichts von Hand geändert wird."
+        : "Gehört zu „Ehe und Partnerschaft“ mit " + esc(personLabel(+tie.with)) + "."}</p>` : "";
+    const open = String(e.text || "").trim() || openEventNotes.has(i);
+    return `<div class="card">
     <button type="button" class="drop" data-drop="events:${i}" aria-label="Station löschen">×</button>
     <div class="fields two">
       ${textField("Was", "events." + i + ".kind", {list: "eventkinds", placeholder: "Taufe, Schule, Umzug …"})}
@@ -3750,8 +4068,11 @@ function eventCards(){
       ${dateField("Wann", "events." + i)}
       ${checkField("ungefähr", "events." + i + ".approx")}
     </div>
-    ${areaField("Was ist passiert", "events." + i + ".text", {rows: 3})}
-  </div>`).join("");
+    ${belongs}
+    ${open ? areaField("Was ist passiert", "events." + i + ".text", {rows: 3})
+           : `<button type="button" class="btn notebtn" data-eventnote="${i}">＋ Notiz hinzufügen</button>`}
+  </div>`;
+  }).join("");
 }
 
 const DOC_ICON = name => {
@@ -4166,7 +4487,8 @@ function formHTML(){
                 : "Änderungen gehen nach data/edits.json – der Bericht bleibt unberührt."}</div></div>
       <datalist id="eventkinds">
         ${["Geburt", "Taufe", "Einschulung", "Konfirmation", "Schulabschluss", "Ausbildung",
-           "Studium", "Beruf", "Militärdienst", "Umzug", "Verlobung", "Heirat", "Scheidung",
+           "Studium", "Beruf", "Militärdienst", "Umzug", "Partnerschaft", "Verlobung", "Heirat",
+           "Trennung", "Scheidung",
            "Kind geboren", "Auswanderung", "Krankheit", "Ruhestand", "Tod", "Beerdigung", "Sonstiges"]
           .map(k => `<option value="${k}">`).join("")}
       </datalist>
@@ -4232,8 +4554,12 @@ function formHTML(){
         + "Steht einer schon da, wird sein Ehepartner darunter mit Namen angeboten – eingetragen wird er erst mit einem Klick.")}
       ${linkSection("spouses", "Ehe und Partnerschaft", spouses,
         "Wird bei beiden eingetragen, sobald gespeichert wird. Rechts neben jedem Namen steht, was die "
-        + "Verbindung ist: „Partnerschaft“, bis „Ehe“ gewählt wird – der Baum zeichnet eine Ehe mit "
-        + "doppelter, eine Partnerschaft mit gestrichelter Linie. Hat das Kind, von dem aus diese "
+        + "Verbindung ist: „Partnerschaft“, bis „Verlobt“ oder „Ehe“ gewählt wird – der Baum zeichnet eine "
+        + "Ehe doppelt, eine Partnerschaft gestrichelt, eine Verlobung gepunktet und eine beendete "
+        + "Verbindung blass. Darunter steht, seit wann und wo, und rechts daneben, ob sie mit Trennung "
+        + "oder Scheidung geendet hat. Mehrere Ehen nacheinander sind einfach mehrere Zeilen. "
+        + "Beginn und Ende landen beim Speichern auch im Lebenslauf beider Personen – abschaltbar "
+        + "unter Optionen. Hat das Kind, von dem aus diese "
         + "Person angelegt wurde, schon einen Elternteil, wird der hier mit Namen angeboten – "
         + "verbunden wird er erst mit einem Klick.")}
       <div class="secpair">
@@ -4402,6 +4728,11 @@ function openEditor(id, seed){
      is written to the other side on saving. */
   draft._childrenWere = editingNew ? [] : (draft._children || []).slice();
   draft._spousesWere = editingNew ? [] : (draft.spouses || []).slice();
+  // An object, never null: a path like "spouse_info.12.since" would otherwise
+  // be created as an array, because its next step is a number.
+  if(!draft.spouse_info || Array.isArray(draft.spouse_info)) draft.spouse_info = {};
+  openTieNotes = new Set();
+  openEventNotes = new Set();
   /* Where the display name stands: written by the program, and with or without
      the birth name - or typed by hand, in which case nothing here touches it.
      A name the report printed rarely matches either built form, so a person out
@@ -4553,6 +4884,7 @@ async function saveDraft(){
   }
   draft.name = composeName(draft);
   draft.edited = new Date().toISOString().slice(0, 19).replace("T", " ");
+  syncTies();
 
   const me = draft.id;
   const payload = {};
@@ -4939,6 +5271,7 @@ function unlinkPerson(role, id){
   // What the tie was called goes with the tie.  Left behind, it would come back
   // to life the day the same two are joined again for a different reason.
   if(role === "spouses" && draft.spouse_kind) delete draft.spouse_kind[id];
+  if(role === "spouses" && draft.spouse_info) delete draft.spouse_info[id];
   if(role === "parents" && draft.parent_kind) delete draft.parent_kind[id];
   markDirty(true);
   renderForm();
@@ -5411,6 +5744,9 @@ document.getElementById("helpBtn").addEventListener("click", () => {
           <h3>Die Linien</h3>
           <ul>
             <li><span>Doppelte Waagerechte</span><span>Eine Ehe.</span></li>
+            <li><span>Einfach gestrichelt</span><span>Eine Partnerschaft ohne Ehe.</span></li>
+            <li><span>Fein gepunktet</span><span>Verlobt.</span></li>
+            <li><span>Blass</span><span>Die Verbindung ist beendet – getrennt oder geschieden.</span></li>
             <li><span>Einfache Linie</span><span>Abstammung. Sie hängt unter dem Paar und geht von dort einzeln zu jedem Kind.</span></li>
             <li><span>Kleiner Bogen</span><span>Hier kreuzt eine Linie eine andere, ohne sie zu berühren – wie in einem Schaltplan.</span></li>
             <li><span>Gestrichelt und lang</span><span>Eine Verbindung über eine größere Entfernung im Bild.</span></li>
@@ -6725,6 +7061,18 @@ function optionsHTML(){
         </ul>
       </div>
 
+      <div class="sec"><h3>Ehe und Partnerschaft</h3>
+        <label class="field check"><input type="checkbox" id="optStationen"
+          ${EDIT.stationenAuto !== false ? "checked" : ""}><span>Beginn und Ende automatisch im
+          Lebenslauf eintragen</span></label>
+        <p class="hintline" style="margin-top:8px">Aus „Verheiratet seit“, „Geschieden seit“ und
+          den anderen Angaben wird beim Speichern bei beiden Personen eine Station Heirat,
+          Verlobung, Partnerschaft, Trennung oder Scheidung. Eine Station, die jemand von Hand
+          geändert hat, fasst das Programm danach nicht mehr an, und eine selbst eingetragene
+          nie. Ausgeschaltet bleibt der Lebenslauf, wie er ist – Stationen, die schon dastehen,
+          werden trotzdem dem richtigen Paar zugeordnet.</p>
+      </div>
+
       <div class="sec"><h3>Wo alles liegt</h3>
         <p class="hintline" style="margin:0 0 10px;font-family:var(--mono,var(--sans))">
           ${esc(EDIT.datenordner || "")}</p>
@@ -7319,6 +7667,16 @@ if(EDIT){
     if(!field || !draft || !field.closest("#editForm")) return;
     setPath(draft, field.dataset.k, readInput(field));
     markDirty(true);
+    /* A couple's dates belong to both of them, so the other record is written
+       in the same keystroke - the same rule as for the dropdown beside the name. */
+    const tieOf = /^spouse_info\.(\d+)\./.exec(field.dataset.k);
+    if(tieOf){
+      const other = touch(+tieOf[1]);
+      if(other){
+        other.spouse_info = other.spouse_info || {};
+        other.spouse_info[draft.id] = JSON.parse(JSON.stringify(draft.spouse_info[tieOf[1]] || {}));
+      }
+    }
     if(field.dataset.k === "name"){
       draft._nameManual = !!(draft.name || "").trim();
       const head = document.getElementById("editTitle");
@@ -7340,6 +7698,22 @@ if(EDIT){
      dropdown fires `input` while it is still being scrolled through with the
      keyboard and half of what is passed would be a choice nobody made. */
   document.addEventListener("change", e => {
+    if(e.target.id === "optStationen"){
+      const an = e.target.checked;
+      api("/api/einstellung?k=" + encodeURIComponent(EDIT.token), {stationen_auto: an})
+        .then(out => {
+          EDIT.stationenAuto = out.stationenAuto;
+          say(an ? "Beginn und Ende einer Ehe landen beim Speichern im Lebenslauf."
+                 : "Der Lebenslauf bleibt beim Speichern, wie er ist.");
+        })
+        .catch(err => { e.target.checked = !an; say("Nicht gespeichert – " + err.message, true); });
+      return;
+    }
+    // "getrennt" or "geschieden" brings its own date boxes, so the form redraws
+    if(draft && e.target.matches('#editForm select[data-k^="spouse_info."]')){
+      renderForm();
+      return;
+    }
     const pick = e.target.closest("[data-role-of]");
     if(!pick || !draft) return;
     const [role, id] = pick.dataset.roleOf.split(":");
@@ -7529,6 +7903,24 @@ if(EDIT){
       jumpToPerson(+goto_.dataset.goto);
       return;
     }
+    const tieNote = e.target.closest("[data-tienote]");
+    if(tieNote){
+      const id = +tieNote.dataset.tienote;
+      openTieNotes.add(id);
+      renderForm();
+      const box = document.querySelector(`#editForm [data-k="spouse_info.${id}.note"]`);
+      if(box) box.focus();
+      return;
+    }
+    const eventNote = e.target.closest("[data-eventnote]");
+    if(eventNote){
+      const at = +eventNote.dataset.eventnote;
+      openEventNotes.add(at);
+      renderForm();
+      const box = document.querySelector(`#editForm [data-k="events.${at}.text"]`);
+      if(box) box.focus();
+      return;
+    }
     const add = e.target.closest("[data-add]");
     if(add){
       const key = add.dataset.add;
@@ -7542,6 +7934,7 @@ if(EDIT){
     if(drop){
       const [key, at] = drop.dataset.drop.split(":");
       (draft[key] || []).splice(+at, 1);
+      if(key === "events") openEventNotes = new Set();   // the numbers moved up
       markDirty(true);
       renderForm();
       return;

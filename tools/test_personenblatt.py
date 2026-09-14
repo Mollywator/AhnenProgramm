@@ -237,9 +237,10 @@ class TestEheUndPartnerschaft(unittest.TestCase):
     def test_ungesagt_heisst_ueberall_dasselbe(self):
         """A pair may not be an Ehe in the diagram and a Partnerschaft in the
         form.  Both ask the same question, so both must answer it the same."""
-        self.assertIn('said === "partner" ? "partner" : "marriage"',
+        # Only an explicit partnership or engagement is not a marriage - in both.
+        self.assertIn('said === "partner" || said === "engaged" ? said : "marriage"',
                       rumpf(self.s, "spouseKind"))
-        self.assertIn('const wed = said !== "partner";', self.s,
+        self.assertIn('const wed = said !== "partner" && said !== "engaged";', self.s,
                       "die Zeichnung liest ungesagte Verbindungen anders")
 
     def test_die_ehe_bleibt_die_doppellinie(self):

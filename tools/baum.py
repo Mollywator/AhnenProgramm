@@ -152,8 +152,17 @@ def renumber(tree: dict, first_id: int) -> dict:
         person["id"] = moved[person["id"]]
         for field in ("parents", "spouses", "children"):
             person[field] = [moved[i] for i in person.get(field) or [] if i in moved]
+        # the role maps are keyed by the same numbers, written as strings
+        for field in ("spouse_kind", "parent_kind", "spouse_info"):
+            person[field] = {str(moved[int(k)]): v for k, v in (person.get(field) or {}).items()
+                             if str(k).lstrip("-").isdigit() and int(k) in moved}
         for event in person.get("events") or []:
             event["with"] = [moved[i] for i in event.get("with") or [] if i in moved]
+            tie = event.get("tie")
+            if isinstance(tie, dict) and tie.get("with") in moved:
+                tie["with"] = moved[tie["with"]]
+            elif "tie" in event:
+                event.pop("tie")
 
     for marriage in out.get("marriages") or []:
         marriage["people"] = [moved[i] for i in marriage.get("people", []) if i in moved]

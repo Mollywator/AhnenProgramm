@@ -316,6 +316,7 @@ def read_state(tree: dict) -> dict:
         "mitnehmenGlobal": store.mitnehmen_global(),
         "mitnehmenBaum": store.mitnehmen_baum(tree),
         "vorbelegung": store.vorbelegung(tree),
+        "stationenAuto": store.stationen_auto(),
         "programmversion": VERSION,
         "format": schema.FORMAT,
         "repo": REPO_URL,
@@ -561,6 +562,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.api_link_mit()
             if route == "/api/mitnehmen":
                 return self.api_mitnehmen()
+            if route == "/api/einstellung":
+                return self.api_einstellung()
             if route == "/api/rename-tree":
                 return self.api_rename_tree()
             if route == "/api/discard-tree":
@@ -956,6 +959,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "mitnehmenGlobal": store.mitnehmen_global(),
                         "mitnehmenBaum": store.mitnehmen_baum(tree),
                         "vorbelegung": store.vorbelegung(tree)})
+
+    def api_einstellung(self) -> None:
+        """A program-wide switch from the options page. Only known keys are kept."""
+        payload = self.body()
+        if isinstance(payload.get("stationen_auto"), bool):
+            store.remember(stationen_auto=payload["stationen_auto"])
+        self.send_json({"ok": True, "stationenAuto": store.stationen_auto()})
 
     def api_link_loesen(self) -> None:
         """Take a linked person out of one tree - hidden, or gone.

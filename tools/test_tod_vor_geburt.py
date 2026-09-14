@@ -177,7 +177,8 @@ class TestHintergrundpruefung(unittest.TestCase):
         self.assertNotIn("parent_checked", self.s)
         self.assertIn("/api/pruefung?k=", teil(self.s, r"function savePruefung\(\)\{.*?\n\}"))
         self.assertNotIn("/api/save", teil(self.s, r"function savePruefung\(\)\{.*?\n\}"))
-        self.assertEqual(schema.FORMAT, 3, "fuer die Pruefung braucht es kein neues Format")
+        # Format 4 came with the dates on a couple, not with the check.
+        self.assertEqual(schema.FORMAT, 4, "fuer die Pruefung braucht es kein neues Format")
 
 
 class TestPruefungsdatei(unittest.TestCase):

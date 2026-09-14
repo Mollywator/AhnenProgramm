@@ -67,7 +67,7 @@ FELDER = (
     ("sources", "Quellen", LISTE),
     ("documents", "Unterlagen", LISTE),
 )
-KINDS = ("parent_kind", "spouse_kind")
+KINDS = ("parent_kind", "spouse_kind", "spouse_info")
 # Never compared when asking "was this record changed since?"
 ABGELEITET = ("children", "edited")
 
@@ -166,6 +166,9 @@ def _umnummern(p: dict, alt: int, neu: int) -> None:
     for ev in p.get("events") or []:
         if ev.get("with"):
             ev["with"] = list(dict.fromkeys(neu if int(x) == alt else int(x) for x in ev["with"]))
+        tie = ev.get("tie")
+        if isinstance(tie, dict) and str(tie.get("with")) == str(alt):
+            tie["with"] = neu
 
 
 def ausfuehren(tree: dict, behalten, entfernt, wahl: dict | None,
@@ -234,6 +237,9 @@ def ausfuehren(tree: dict, behalten, entfernt, wahl: dict | None,
     for ev in neu.get("events") or []:
         if ev.get("with"):
             ev["with"] = [x for x in ev["with"] if x != a]
+        # a station about a couple of one person with herself is no longer one
+        if isinstance(ev.get("tie"), dict) and str(ev["tie"].get("with")) == str(a):
+            ev.pop("tie")
     neu.update({"id": a, "children": [], "link": pa.get("link"),
                 "edited": jetzt.isoformat(timespec="seconds")})
 
@@ -267,6 +273,9 @@ def ausfuehren(tree: dict, behalten, entfernt, wahl: dict | None,
                 spuren.append([kind, wert, hatte])
         treffer = 0
         for ev in p.get("events") or []:
+            tie = ev.get("tie")
+            if isinstance(tie, dict) and str(tie.get("with")) == str(b):
+                tie["with"] = a
             if b in [int(x) for x in ev.get("with") or []]:
                 ev["with"] = list(dict.fromkeys(a if int(x) == b else int(x) for x in ev["with"]))
                 treffer += 1

@@ -247,3 +247,94 @@ The same reason as version 2. An older program opens the file, shows the
 family, and drops both maps on the first save — turning every recorded
 partnership into a marriage and every step-parent into a blood one, silently.
 Refusing to open is the only answer that cannot lose anything.
+
+---
+
+## Version 4
+
+Since 15.09.2026.  One new map on a person, one new field on a life-story
+station, and a third value for `spouse_kind`.
+
+A couple could be named but not dated. When two people married, where, and
+whether it ended in a separation or a divorce lived in the free text or in
+stations of the life story that nothing connected to the couple.
+
+### `spouse_kind` gains `engaged`
+
+| Value | What it is |
+|---|---|
+| `marriage` | a marriage |
+| `engaged` | an engagement |
+| `partner` | a partnership without a marriage |
+
+Where the two records disagree the stronger claim wins, in that order.
+
+### `spouse_info`, on a person
+
+`{}` where nothing is known.  Otherwise a map from the spouse's `id`, as a
+string, to:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `since` | date or null | when it began — the wedding, the engagement, or the start of the partnership, whichever `spouse_kind` says it is |
+| `place` | string or null | where it began |
+| `end` | string or null | `separated`, `divorced`, or null while it lasts |
+| `until` | date or null | when it ended. Always null while `end` is null |
+| `note` | string or null | free text about the couple — a church wedding a year later, a remarriage of the same two |
+
+A date here is `year`, `month`, `day` (each int or null) and `approx` (bool).
+An entry with every field null is not written at all.
+
+Like `spouse_kind` it is about the pair, so it stands on **both** records and
+the two must agree. Where a hand-edited file disagrees with itself, the entry
+with more filled fields wins, and between two equally full ones the one on the
+record with the lower `id`.
+
+Being widowed is **not** a value of `end`. It follows from the other person's
+death date, and a second place to say it would be a second place to be wrong.
+
+The same two people marrying twice is one entry, not two. What happened in
+between goes into `note`.
+
+### `tie`, on a station in `events`
+
+A station that describes a couple — `Heirat`, `Hochzeit`, `Trauung`,
+`Eheschließung`, `Verlobung`, `Partnerschaft`, `Trennung`, `Scheidung` — may
+carry:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `with` | int | the partner's `id` |
+| `part` | string | `start` or `end` of the couple |
+| `auto` | object or null | null for a station somebody entered; for one the editor wrote from `spouse_info`, a copy of `kind`, `year`, `month`, `day`, `approx`, `place` as it wrote them |
+
+A station with `auto` null is **never rewritten** by the program. One with
+`auto` set is kept in step with the couple for as long as it still matches that
+copy and has no `text`; the moment somebody changes it, `auto` becomes null and
+it is theirs. Writing these stations at all can be switched off
+(`stationen_auto` in `einstellungen.json`); linking the ones that exist cannot.
+
+`tie.with` is a local number, like every link: a `tie` pointing at somebody who
+is no longer a partner is dropped on load, and the station stays.
+
+### How stations and couples are joined
+
+On every load, a station with no `tie` whose name is one of the above is tied
+to a couple when it is clear which one: the station's `with` names exactly one
+of the person's partners, or names nobody and the person has exactly one
+partner. An unnamed station gets that partner written into `with`. The couple
+then takes the station's date and place into `since`/`place` or `end`/`until`
+**only where those are still empty**; a `Heirat` also makes the couple a
+`marriage`, and a `Verlobung` makes a `partner` couple `engaged`.
+
+### The conversion out of version 3
+
+Every person gets `spouse_info: {}`, and the joining above runs once. Nothing
+is invented: a couple whose dates were never written down has none afterwards
+either.
+
+### Why the version number went up
+
+An older program would drop `spouse_info` and every `tie` on the first save,
+and read `engaged` as unsaid — a marriage. Refusing to open is the only answer
+that cannot lose anything.

@@ -53,7 +53,7 @@ true for ever and is what makes an old backup readable at all.
 from __future__ import annotations
 
 # The shape this program writes.  Raised by one whenever the shape changes.
-FORMAT = 3
+FORMAT = 4
 
 # The oldest shape that can still be brought forward.  Everything below this is
 # refused rather than mangled - see the note about dropping conversions above.
@@ -139,6 +139,23 @@ def _von_2_auf_3(tree: dict) -> None:
             kinds.setdefault(str(spouse), "marriage")
 
 
+def _von_3_auf_4(tree: dict) -> None:
+    """Give every couple room for when, where and how it ended.
+
+    `spouse_info` arrives empty on each person.  Nothing is invented: a couple
+    whose dates were never written down has none now either.  What is already
+    in a life story is used, though - a "Heirat" or "Scheidung" station naming
+    the partner is the same fact the new fields hold, so it is tied to the
+    couple and lends it its date.  The station itself stays word for word.
+    """
+    import edits as person_lib        # here, not at the top: edits must not need format
+    for person in tree.get("people") or []:
+        person.setdefault("spouse_info", {})
+        person.setdefault("spouse_kind", {})
+        person.setdefault("parent_kind", {})
+    person_lib.normalise_links(tree.get("people") or [])
+
+
 SCHRITTE: list[dict] = [
     {"von": 1, "was": "Jede Person bekommt das Feld für die Verknüpfung in "
                       "einen anderen Stammbaum (leer)",
@@ -146,6 +163,10 @@ SCHRITTE: list[dict] = [
     {"von": 2, "was": "Jede Verbindung bekommt eine Art: bestehende Paare gelten "
                       "als Ehe, Elternteile bleiben unbestimmt",
      "tun": _von_2_auf_3},
+    {"von": 3, "was": "Ehe und Partnerschaft bekommen Beginn, Ort, Ende und Notiz; "
+                      "vorhandene Stationen wie Heirat oder Scheidung werden dem "
+                      "passenden Paar zugeordnet",
+     "tun": _von_3_auf_4},
 ]
 
 

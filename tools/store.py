@@ -947,6 +947,17 @@ def stufen() -> list[dict]:
     return out
 
 
+def stationen_auto() -> bool:
+    """Whether a couple's dates are written into both life stories as stations.
+
+    On unless somebody switched it off: the stations are what the sheet reads
+    as a life, and a wedding that only exists on the tie would be missing
+    there.  Stored for the program rather than per tree - it is a way of
+    working, not a fact about one family.
+    """
+    return settings().get("stationen_auto") is not False
+
+
 def mitnehmen_global() -> str:
     wert = settings().get("mitnehmen")
     return wert if wert in _stufen_ids() else "alles"

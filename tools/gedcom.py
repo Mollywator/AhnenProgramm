@@ -283,11 +283,15 @@ def read(raw: str, first_id: int = 1) -> dict:
                 event.update({k: v for k, v in wedding.items() if k != "cause"})
                 by_id[person_id]["events"].append(event)
 
-        divorce = fact(fam.first("DIV"))
-        if divorce and parents:
+        # Stations in both life stories.  `normalise_links` below ties them to
+        # the couple, which is where the dates end up on the tie as well.
+        for tag, kind in (("ENGA", "Verlobung"), ("DIV", "Scheidung")):
+            got = fact(fam.first(tag))
+            if not (got and parents):
+                continue
             for person_id in parents:
-                event = {"kind": "Scheidung", "with": [p for p in parents if p != person_id]}
-                event.update({k: v for k, v in divorce.items() if k != "cause"})
+                event = {"kind": kind, "with": [p for p in parents if p != person_id]}
+                event.update({k: v for k, v in got.items() if k != "cause"})
                 by_id[person_id]["events"].append(event)
 
     person_lib.normalise_links(people)
@@ -473,6 +477,9 @@ def write(tree: dict, program: str = "Stammbaum") -> str:
             kind = (event.get("kind") or "").strip()
             if kind in ("Geburt", "Tod", "Beerdigung", "Heirat", "Scheidung"):
                 continue                       # already carried by their own tags
+            role = person_lib.station_role(kind)
+            if event.get("tie") and role and role[1] != "partner":
+                continue                       # carried by the couple's FAM record
             lines.append("1 EVEN %s" % (event.get("text") or ""))
             lines.append("2 TYPE %s" % (kind or "Ereignis"))
             when = out_date(event)
@@ -505,14 +512,33 @@ def write(tree: dict, program: str = "Stammbaum") -> str:
             lines.append("1 %s @I%d@" % (role, parent))
         for child in fam["children"]:
             lines.append("1 CHIL @I%d@" % child)
-        wedding = weddings.get(tuple(sorted(fam["parents"])))
-        if wedding:
-            lines.append("1 MARR")
-            when = out_date(wedding)
+        # What the couple itself says - the tie - comes first; the report's
+        # own marriage list fills in where the tie has nothing.
+        tie, kind = {}, None
+        if len(fam["parents"]) == 2:
+            a, b = fam["parents"]
+            tie = (by_id[a].get("spouse_info") or {}).get(str(b)) or {}
+            kind = (by_id[a].get("spouse_kind") or {}).get(str(b))
+        wedding = weddings.get(tuple(sorted(fam["parents"]))) or {}
+        when = out_date(tie.get("since")) or out_date(wedding)
+        place = tie.get("place") or wedding.get("place")
+        # A partnership has no GEDCOM tag of its own, so it only goes out as
+        # a couple; an engagement is ENGA; everything else is a marriage.
+        tag = {"engaged": "ENGA", "partner": None}.get(kind, "MARR")
+        if tag and (wedding or when or place):
+            lines.append("1 %s" % tag)
             if when:
                 lines.append("2 DATE %s" % when)
-            if wedding.get("place"):
-                lines.append("2 PLAC %s" % wedding["place"])
+            if place:
+                lines.append("2 PLAC %s" % place)
+        if tie.get("end") == "divorced":
+            lines.append("1 DIV")
+        elif tie.get("end") == "separated":
+            lines += ["1 EVEN", "2 TYPE Trennung"]
+        if tie.get("end") and out_date(tie.get("until")):
+            lines.append("2 DATE %s" % out_date(tie.get("until")))
+        if tie.get("note"):
+            lines += long_value(1, "NOTE", tie["note"])
 
     lines.append("0 TRLR")
     return "\r\n".join(lines) + "\r\n"
