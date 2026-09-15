@@ -317,6 +317,7 @@ def read_state(tree: dict) -> dict:
         "mitnehmenBaum": store.mitnehmen_baum(tree),
         "vorbelegung": store.vorbelegung(tree),
         "stationenAuto": store.stationen_auto(),
+        "theme": store.theme(),
         "programmversion": VERSION,
         "format": schema.FORMAT,
         "repo": REPO_URL,
@@ -505,8 +506,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send_blob(zu_neu_seite(err).encode("utf-8"),
                                       "text/html; charset=utf-8")
             html = render_page(tree)
+            state = read_state(tree)
+            # The saved light goes on in the head, before anything is drawn -
+            # set later, a dark choice would flash up light first.
             boot = ("<script>window.STAMMBAUM_EDIT=" +
-                    json.dumps(read_state(tree), ensure_ascii=False) + ";</script>")
+                    json.dumps(state, ensure_ascii=False) + ";" +
+                    ("document.documentElement.setAttribute('data-theme'," +
+                     json.dumps(state["theme"]) + ");" if state["theme"] else "") +
+                    "</script>")
             html = html.replace("</head>", boot + "</head>", 1)
             self.send_blob(html.encode("utf-8"), "text/html; charset=utf-8")
         finally:
@@ -965,7 +972,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         payload = self.body()
         if isinstance(payload.get("stationen_auto"), bool):
             store.remember(stationen_auto=payload["stationen_auto"])
-        self.send_json({"ok": True, "stationenAuto": store.stationen_auto()})
+        if payload.get("theme") in store.THEMES:
+            store.remember(theme=payload["theme"])
+        self.send_json({"ok": True, "stationenAuto": store.stationen_auto(),
+                        "theme": store.theme()})
 
     def api_link_loesen(self) -> None:
         """Take a linked person out of one tree - hidden, or gone.
