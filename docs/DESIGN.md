@@ -876,7 +876,7 @@ machine it is on.
 └─ (no data of any kind)
 
 <the data folder>/           chosen by whoever runs the program - see store.py
-├─ einstellungen.json        which tree was open, and where each one lives
+├─ einstellungen.json        which tree was open, where each one lives, program options
 └─ SB_<name>/                one folder per tree, everything of it inside
    ├─ baum.json              the people, the marriages, the heading
    ├─ Stammbaum.html         the deliverable - one file, hand this out
@@ -899,6 +899,26 @@ machine it is on.
 when it was last read.  The page is built from the former and only from the
 latter when asked - `build_site.py --aus-bericht`, which is what `build.cmd`
 passes, being the chain out of the PDF.
+
+### Where an option is kept
+
+Never in the editor window's browser storage.  The program listens on a new
+port every start, and the browser files what it remembers under the port, so
+anything kept there was gone by the next start.
+
+| Kind | Examples | Kept in |
+|---|---|---|
+| **the program's** - holds whichever tree is open | Tageslicht/Abendlicht (`theme`), `stationen_auto`, `stufen`, `mitnehmen`, `offen` | `einstellungen.json`, via `store.remember()` |
+| **one tree's** - travels when the tree is handed on | "Das bin ich" (`meta.root`), `meta.mitnehmen` | `baum.json` of that tree |
+| **one window's** - gone when it closes | jump-back trail, message after a reload | `sessionStorage` |
+
+The page handed around has no program behind it, so there the reader's browser
+is the only place left: Tageslicht/Abendlicht and "Das bin ich" go into
+`localStorage`, and the copy ignores `meta.root` on purpose so nobody inherits
+somebody else's middle.  A light chosen in a browser before the program kept
+it is taken over once, the first time the program has none.  The saved light
+is set in the head, before anything is drawn; print and export stay light
+whatever it is.
 
 ### Why they are apart
 

@@ -917,6 +917,16 @@ html[data-edit] .editonly.flex{display:flex !important}
 .abriss b{font-weight:600}
 .abriss span{opacity:1}
 </style>
+<script>
+/* The light is put on before anything is drawn, or a dark choice flashes up
+   light first.  This is the copy with no program behind it, where the reader's
+   browser is the only place to keep it.  The editor's own choice lives with
+   the program and is set right after this, in the head the server adds. */
+try{
+  if(localStorage.getItem("stammbaum-theme") === "abend")
+    document.documentElement.setAttribute("data-theme", "abend");
+}catch(_){}
+</script>
 </head>
 <body>
 
@@ -6386,19 +6396,35 @@ document.addEventListener("input", e => {
                                 : "Zusammengeführt – unten im Prüfbericht steht, was dabei geschah.");
   }, 400);
 })();
+/* Tageslicht or Abendlicht.  The head already put the saved one on; here it is
+   only switched and kept.  In the editor it is kept with the program: the
+   window gets a new port on every start, and the browser files what it
+   remembers under the port, so its own storage came back empty each time.
+   The copy handed around has nothing but the browser, and keeps it there. */
 const themeBtn = document.getElementById("themeBtn");
+function keepTheme(theme){
+  if(IS_EDIT){
+    EDIT.theme = theme;
+    api("/api/einstellung?k=" + encodeURIComponent(EDIT.token), {theme})
+      .catch(err => say("Licht nicht gemerkt – " + err.message, true));
+  } else {
+    try{ localStorage.setItem("stammbaum-theme", theme); }catch(_){}
+  }
+}
 themeBtn.addEventListener("click", () => {
   const dark = document.documentElement.getAttribute("data-theme") === "abend";
   document.documentElement.setAttribute("data-theme", dark ? "tag" : "abend");
   themeBtn.textContent = dark ? "Abendlicht" : "Tageslicht";
-  try{ localStorage.setItem("stammbaum-theme", dark ? "tag" : "abend"); }catch(_){}
+  keepTheme(dark ? "tag" : "abend");
 });
-try{
-  if(localStorage.getItem("stammbaum-theme") === "abend"){
-    document.documentElement.setAttribute("data-theme", "abend");
-    themeBtn.textContent = "Tageslicht";
-  }
-}catch(_){}
+if(document.documentElement.getAttribute("data-theme") === "abend")
+  themeBtn.textContent = "Tageslicht";
+// Never chosen in the program, but once in this browser: take that over once.
+if(IS_EDIT && !EDIT.theme){
+  let alt = null;
+  try{ alt = localStorage.getItem("stammbaum-theme"); }catch(_){}
+  if(alt === "tag" || alt === "abend") keepTheme(alt);
+}
 
 /* The zoom method is named here on purpose: if the diagram ever looks soft
    again, this line says straight away whether the browser is laying the

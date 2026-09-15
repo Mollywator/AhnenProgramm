@@ -958,6 +958,21 @@ def stationen_auto() -> bool:
     return settings().get("stationen_auto") is not False
 
 
+THEMES = ("tag", "abend")
+
+
+def theme() -> str | None:
+    """Tageslicht or Abendlicht, as last chosen in the window - or None if never.
+
+    Kept for the program, not in the browser: the window gets a new port on
+    every start, and the browser files what it remembers under the port, so
+    anything it kept was gone by the next start.  None rather than "tag" so the
+    page can tell "never chosen" apart and take over an older choice once.
+    """
+    wert = settings().get("theme")
+    return wert if wert in THEMES else None
+
+
 def mitnehmen_global() -> str:
     wert = settings().get("mitnehmen")
     return wert if wert in _stufen_ids() else "alles"
