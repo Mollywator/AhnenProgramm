@@ -5704,6 +5704,7 @@ document.getElementById("helpBtn").addEventListener("click", () => {
             und erst dann, in welcher Form. Alles landet im Ordner <b>Export</b> neben dem Programm.
           </p>
           <ul>
+            <li><span>Mit oder ohne Mittelpunkt</span><span>Ganz oben im Dialog. <b>Ohne</b> gibt dieselben Personen aus, aber niemand ist hervorgehoben und keiner heißt „Onkel“ oder „Cousine“ – gedacht für einen Stammbaum, der an die ganze Familie geht. Ist in der Ansicht niemand Mittelpunkt, steht die Wahl fest auf <b>Ohne</b>.</span></li>
             <li><span>Häkchen bei den Angaben</span><span>Was nicht angehakt ist, wird aus den Daten <b>herausgeschnitten</b> – nicht nur ausgeblendet. Kontaktdaten, Unterlagen und der Originaltext aus dem Bericht sind mit Absicht von vornherein ab.</span></li>
             <li><span>PDF</span><span>Erst das Diagramm auf einer einzigen Seite, so breit wie es sein muss, dann das Personenbuch auf A4. Wahlweise in einer Datei oder in zweien.</span></li>
             <li><span>SVG</span><span>Das Diagramm als Zeichnung ohne Größengrenze. Bleibt beim Hineinzoomen scharf, öffnet sich auch auf dem Handy im Browser, und der Copyshop kann daraus ein Poster machen.</span></li>
@@ -6524,7 +6525,12 @@ async function photosAsData(ids){
 }
 
 /* ---- the drawing --------------------------------------------------------- */
-function diagramSVG(bilder){
+/* `neutral` is the export "Ohne Mittelpunkt": the same boxes in the same
+   places, but nothing that is only true seen from one person - no marked box,
+   no "Onkel" or "Cousine", no in-law tint, no family islands named after whoever
+   married in.  Read off the plane rather than redrawn with `centre = null`,
+   because the layout itself depends on the centre and the screen must not move. */
+function diagramSVG(bilder, neutral = false){
   const plane = document.getElementById("plane");
   const width = Math.ceil(parseFloat(plane.style.width) || plane.scrollWidth);
   const height = Math.ceil(parseFloat(plane.style.height) || plane.scrollHeight);
@@ -6541,14 +6547,15 @@ function diagramSVG(bilder){
     far: [t.indirektLine, 1.5, "7 5"],
   };
   for(const path of plane.querySelectorAll(".wires path")){
-    const kind = ["marriage", "bridge", "far"].find(k => path.classList.contains(k)) || "";
+    let kind = ["marriage", "bridge", "far"].find(k => path.classList.contains(k)) || "";
+    if(neutral && kind === "bridge") kind = "marriage";
     const [stroke, w, dash] = wireStyle[kind];
     parts.push(`<path d="${xml(path.getAttribute("d"))}" fill="none" stroke="${stroke}" ` +
       `stroke-width="${w}"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`);
   }
 
   /* the tinted islands of the Sippen design */
-  for(const hull of plane.querySelectorAll(".hull")){
+  for(const hull of neutral ? [] : plane.querySelectorAll(".hull")){
     const x = parseFloat(hull.style.left), y = parseFloat(hull.style.top);
     const w = parseFloat(hull.style.width), h = parseFloat(hull.style.height);
     parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" ` +
@@ -6566,8 +6573,8 @@ function diagramSVG(bilder){
     const w = parseFloat(box.style.width) || NW, h = parseFloat(box.style.height) || NH;
     const person = BY_ID.get(+box.dataset.person);
     if(!person) continue;
-    const centred = box.classList.contains("centre");
-    const married = box.classList.contains("married");
+    const centred = !neutral && box.classList.contains("centre");
+    const married = !neutral && box.classList.contains("married");
 
     if(centred)
       parts.push(`<rect x="${x - 4}" y="${y - 4}" width="${w + 8}" height="${h + 8}" rx="6" fill="${t.accentSoft}"/>`);
@@ -6577,7 +6584,7 @@ function diagramSVG(bilder){
       `stroke="${centred ? t.accent : t.rule2}" stroke-width="${centred ? 2 : 1}"` +
       `${married ? ' stroke-dasharray="5 3"' : ""}/>`);
 
-    if(box.classList.contains("blood")){
+    if(!neutral && box.classList.contains("blood")){
       const edge = box.classList.contains("up") ? t.male
                  : box.classList.contains("down") ? t.female
                  : box.classList.contains("side") ? t.accent : t.rule2;
@@ -6599,15 +6606,20 @@ function diagramSVG(bilder){
 
     const tx = px + 45;
     const room = w - (tx - x) - 12;
-    const tag = box.querySelector(".lines i");
+    const shownTag = box.querySelector(".lines i");
+    // a relation tag ("Mittelpunkt", "Onkel") becomes what a box without a
+    // centre says on screen: the life span
+    const tag = shownTag && neutral && shownTag.classList.contains("rel")
+      ? {text: lifespan(person) || "—", rel: false}
+      : shownTag && {text: shownTag.textContent.trim(), rel: shownTag.classList.contains("rel")};
     const dates = [...box.querySelectorAll(".lines u span")];
     const nameSize = fitting(person.name, t.serif, 15.5, room, 10.5);
     parts.push(`<text x="${tx}" y="${y + 25}" font-family="${xml(t.serif)}" font-size="${nameSize}" ` +
       `font-weight="${centred ? 600 : 500}" fill="${centred ? t.accent : married ? t.ink2 : t.ink}">` +
       `${xml(clip(person.name, nameSize + "px " + t.serif, room))}</text>`);
     if(tag) parts.push(`<text x="${tx}" y="${y + 41}" font-family="${xml(t.sans)}" font-size="11.5" ` +
-      `letter-spacing="0.7" fill="${tag.classList.contains("rel") ? t.accent : t.ink3}">` +
-      `${xml(clip(tag.textContent.trim(), tagFont, room))}</text>`);
+      `letter-spacing="0.7" fill="${tag.rel ? t.accent : t.ink3}">` +
+      `${xml(clip(tag.text, tagFont, room))}</text>`);
     // born and died, one under the other, in the order the box has them
     dates.forEach((line, n) => parts.push(
       `<text x="${tx}" y="${y + 57 + n * 14}" font-family="${xml(t.sans)}" font-size="11.5" ` +
@@ -6615,7 +6627,7 @@ function diagramSVG(bilder){
       `${xml(clip(line.textContent.replace(/\s+/g, " ").trim(), dateFont, room))}</text>`));
   }
 
-  const title = (BY_ID.get(centre) || {}).name || "";
+  const title = neutral ? "" : (BY_ID.get(centre) || {}).name || "";
   const viewName = {nah: "Nahe Familie", ahnen: "Ahnentafel", blut: "Ganze Linie", alle: "Alle"}[mode] || mode;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
@@ -6667,7 +6679,8 @@ function exportHTML(){
   // twenty people should see twenty before pressing Schreiben, rather than
   // find a hundred page book of the entire tree in the folder afterwards
   const shown = stageSet().size;
-  const box = (id, label, on, note, off) => `<label class="field check"${off ? ' style="color:var(--ink-3)"' : ""}>
+  const centreName = centre === null ? "" : (BY_ID.get(centre) || {}).name || "";
+  const box =(id, label, on, note, off) => `<label class="field check"${off ? ' style="color:var(--ink-3)"' : ""}>
     <input type="checkbox" id="${id}"${on && !off ? " checked" : ""}${off ? " disabled" : ""}>
     <span>${esc(label)}${note ? ` <em style="color:var(--ink-3);font-style:normal">${esc(note)}</em>` : ""}</span></label>`;
 
@@ -6683,10 +6696,26 @@ function exportHTML(){
     <div class="sheet-body">
       <div class="sheet-intro"><div class="node-meta" style="font-size:14px">
           Aus dem Haus geht die Ansicht, die gerade offen ist: <b>${esc(viewName)}</b>${
-            centre === null ? "" : " um " + esc((BY_ID.get(centre) || {}).name || "")} –
+            centreName ? " um " + esc(centreName) : ""} –
           <b>${shown}</b> von ${DATA.meta.count} Personen. Diagramm und Buch zeigen dieselben;
           wer nicht im Bild ist, steht auch nicht im Buch.
       </div></div>
+
+      <!-- Only how the people are shown, never which: the same boxes go out
+           either way.  Without a centre in the view there is nothing to show,
+           so the choice stands on "Ohne" and cannot be changed. -->
+      <div class="sec"><h3>Mittelpunkt</h3>
+        <div class="fields two">
+          <label class="field check"${centreName ? "" : ' style="color:var(--ink-3)"'}>
+            <input type="radio" name="expCentre" id="expCentreWith"${centreName ? " checked" : " disabled"}>
+            <span>Mit Mittelpunkt <em style="color:var(--ink-3);font-style:normal">${
+              centreName ? esc(centreName) + " hervorgehoben, alle anderen als Onkel, Cousine …"
+                         : "in der Ansicht ist niemand Mittelpunkt"}</em></span></label>
+          <label class="field check">
+            <input type="radio" name="expCentre" id="expCentreWithout"${centreName ? "" : " checked disabled"}>
+            <span>Ohne Mittelpunkt <em style="color:var(--ink-3);font-style:normal">niemand hervorgehoben, keine Verwandtschaftsangaben – für die ganze Familie</em></span></label>
+        </div>
+      </div>
 
       <div class="sec"><h3>Inhalt</h3>
         <div class="fields two">
@@ -7398,6 +7427,9 @@ async function runExport(){
 
   const fields = {};
   for(const [key] of EXPORT_FIELDS) fields[key] = on("feld_" + key);
+  // "Ohne Mittelpunkt" is sent as no centre at all, so the program has no name
+  // to put on the book, the file or the page - see `neutral` in export.py
+  const withCentre = centre !== null && on("expCentreWith");
 
   const button = document.getElementById("doExport");
   const info = document.getElementById("expInfo");
@@ -7410,7 +7442,7 @@ async function runExport(){
       if(info) info.textContent = "Holt die Portraits …";
       const bilder = await photosAsData(stageSet());
       if(info) info.textContent = "Zeichnet das Diagramm …";
-      svg = diagramSVG(bilder);
+      svg = diagramSVG(bilder, !withCentre);
       const size = pngPossible();
       if(formats.includes("png") && size.ok){
         if(info) info.textContent = "Rechnet das Bild …";
@@ -7422,7 +7454,7 @@ async function runExport(){
       diagramm: wantDiagram, buch: wantBook,
       formate: formats, felder: fields,
       zusammen: on("pdfTogether"),
-      ansicht: mode, mittelpunkt: centre,
+      ansicht: mode, mittelpunkt: withCentre ? centre : null,
       // whom the open view actually puts on the stage.  Without this the book
       // and the page were written out of the whole tree while the diagram
       // beside them showed a handful of people - see `only` in export.py

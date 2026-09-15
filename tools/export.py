@@ -159,6 +159,23 @@ def only(data: dict, ids) -> dict:
     return out
 
 
+def neutral(data: dict) -> dict:
+    """The export "Ohne Mittelpunkt": nothing left that is seen from one person.
+
+    The diagram is made neutral by the page, which draws it.  What is left here
+    is what the data itself carries: the label the report printed beside a
+    name ("Onkel", "Cousine 2. Grades") - measured from whoever the report was
+    written for, and shown by the page whenever it has nothing better - and the
+    owner's own middle in `meta.root`.  Nobody is taken out; only these go.
+    """
+    out = json.loads(json.dumps(data))
+    for person in out["people"]:
+        if "relation" in person:
+            person["relation"] = None
+    out["meta"]["root"] = None
+    return out
+
+
 def restate_meta(data: dict) -> None:
     """Put the heading numbers back in line with what is really in the file.
 
@@ -554,7 +571,7 @@ def book_body(data: dict, photos: dict, fields: dict, centre_name: str) -> str:
   <p class="sans" style="letter-spacing:.14em;text-transform:uppercase;font-size:9pt;color:#8b8375">
     Personenbuch · %(anzahl)d Personen · %(spanne)s</p>
   <p style="margin-top:12mm">%(quelle)s</p>
-  <p>Mittelpunkt der Verwandtschaftsangaben: <b>%(mittelpunkt)s</b>.</p>
+  %(mittelpunkt)s
   <p>Gedruckt am %(datum)s.</p>
 </div>
 %(inhalt)s""" % {
@@ -562,7 +579,10 @@ def book_body(data: dict, photos: dict, fields: dict, centre_name: str) -> str:
         "anzahl": len(people),
         "spanne": esc(meta.get("span") or ""),
         "quelle": esc(meta.get("source_note") or ""),
-        "mittelpunkt": esc(centre_name),
+        # an export without a centre has nobody to name here, and an empty
+        # "Mittelpunkt: ." is still a claim that there is one
+        "mittelpunkt": ("<p>Mittelpunkt der Verwandtschaftsangaben: <b>%s</b>.</p>"
+                        % esc(centre_name)) if centre_name else "",
         "datum": today,
         "inhalt": "\n".join(blocks),
     }
@@ -673,6 +693,10 @@ def run(data: dict, order: dict, out_dir: str, centre_name: str) -> list[str]:
     # always the whole tree, which is what makes them useful for handing the
     # tree itself to somebody, so they keep it.
     slim = trim(only(data, order.get("personen")), fields)
+    # No centre name means the dialog said "Ohne Mittelpunkt", or the view had
+    # none to begin with.  The two data formats stay the tree as it is.
+    if not centre_name:
+        slim = neutral(slim)
     restate_meta(slim)
     whole = trim(data, fields) if {"baum", "gedcom"} & formats else slim
     photos = build_site.encode_photos(slim["people"]) if fields.get("fotos") else {}

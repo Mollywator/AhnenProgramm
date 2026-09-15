@@ -737,6 +737,15 @@ left behind by it.
 else.  It is a sheet of tick boxes rather than a button, because the question
 is never only *what format* but *what may leave the house*.
 
+**Centre:** asked first, *Mit* or *Ohne Mittelpunkt*.  It changes how the people
+are shown, never which.  *Ohne* is sent as no centre at all: the diagram drops
+the marked box, the relation tags (the box shows the life span instead), the
+in-law tint and the family islands; the book drops its "Mittelpunkt" line; the
+page loses the report's relation labels and `meta.root`; the file name carries
+no person.  With no centre in the view the choice stands on *Ohne*.  The
+diagram is read off the plane rather than redrawn without a centre, because
+the layout depends on the centre and the screen must not move.
+
 **Content:** the diagram of whichever view is open, the person book, or both -
 both showing the same people, the ones on the stage right now.
 
@@ -747,8 +756,8 @@ own prose start unticked.  What is not ticked is **cut out of the data** before
 anything is written, not hidden with CSS: the exported page's `DATA` object
 does not contain it.
 
-Everything lands in `Export/`, named after the tree, the view, the centre and
-the date.
+Everything lands in `Export/`, named after the tree, the view, the centre (if
+it is shown) and the date.
 
 ### The view is a filter, not a picture frame
 
