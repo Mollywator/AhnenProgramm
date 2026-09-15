@@ -6468,8 +6468,9 @@ const EXPORT_FIELDS = [
   ["fotos", "Portraits", false],
   ["notizen", "Notizen und Freitext", false],
   ["bericht", "Originaltext und Quellen aus dem Bericht", false],
-  ["kontakt", "Kontaktdaten Lebender", false],
   ["unterlagen", "Unterlagen – die Dateien selbst", false],
+  // last, because its list of lines hangs underneath and would stretch a row
+  ["kontakt", "Kontaktdaten Lebender", false],
 ];
 
 /* Opens under "Kontaktdaten Lebender" once that is ticked.  None is ticked in
@@ -6787,13 +6788,15 @@ function exportHTML(){
           Vorab sind nur Lebensdaten, Orte und Familie angehakt – die Datei wird weitergereicht.
           Alles Weitere kommt nur mit, wenn du es selbst anhakst.</p>
         <div class="fields two">
-          ${EXPORT_FIELDS.map(([key, label, on]) => box("feld_" + key, label, on)).join("")}
-        </div>
-        <div id="kontaktTeile" hidden style="margin-top:12px">
-          <p class="hintline" style="margin:0 0 8px">Welche Kontaktdaten? Nur die angehakten gehen mit.</p>
-          <div class="fields two">
-            ${EXPORT_CONTACT.map(([key, label]) => box("kontakt_" + key, label, false)).join("")}
-          </div>
+          ${EXPORT_FIELDS.map(([key, label, on]) => key !== "kontakt" ? box("feld_" + key, label, on)
+            // the contact lines hang under their box as a list, greyed out
+            // until "Kontaktdaten Lebender" itself is ticked
+            : `<div style="grid-column:1/-1">${box("feld_" + key, label, on)}
+                <div id="kontaktTeile" style="display:flex;flex-direction:column;gap:6px;margin:6px 0 0 24px">
+                  ${EXPORT_CONTACT.map(([teil, name]) => `<label class="field check${on ? "" : " off"}">
+                    <input type="checkbox" id="kontakt_${teil}"${on ? "" : " disabled"}>
+                    <span>${esc(name)}</span></label>`).join("")}
+                </div></div>`).join("")}
         </div>
       </div>
     </div>
@@ -7742,7 +7745,12 @@ if(EDIT){
     document.body.style.overflow = "hidden";
     const kontakt = document.getElementById("feld_kontakt");
     const teile = document.getElementById("kontaktTeile");
-    if(kontakt && teile) kontakt.addEventListener("change", () => { teile.hidden = !kontakt.checked; });
+    if(kontakt && teile) kontakt.addEventListener("change", () => {
+      for(const input of teile.querySelectorAll("input")){
+        input.disabled = !kontakt.checked;
+        input.closest("label").classList.toggle("off", input.disabled);
+      }
+    });
   };
   document.getElementById("exportBtn").addEventListener("click", openExport);
 

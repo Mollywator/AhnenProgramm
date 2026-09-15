@@ -59,7 +59,8 @@ class TestVorauswahl(unittest.TestCase):
         self.assertIsNotNone(block, "die Kontakt-Unterauswahl fehlt")
         self.assertEqual(re.findall(r'\["(\w+)"', block.group(1)),
                          list(export.CONTACT_PARTS))
-        self.assertIn('box("kontakt_" + key, label, false)', s)
+        self.assertIn('id="kontakt_${teil}"${on ? "" : " disabled"}', s,
+                      "die Kontaktzeilen sind nicht mehr ausgegraut, solange der Hauptschalter aus ist")
 
 
 class TestKontaktEinzeln(unittest.TestCase):
