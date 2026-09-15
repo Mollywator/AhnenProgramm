@@ -6644,11 +6644,10 @@ function diagramSVG(bilder, neutral = false){
     const tx = px + 45;
     const room = w - (tx - x) - 12;
     const shownTag = box.querySelector(".lines i");
-    // a relation tag ("Mittelpunkt", "Onkel") becomes what a box without a
-    // centre says on screen: the life span
-    const tag = shownTag && neutral && shownTag.classList.contains("rel")
-      ? {text: lifespan(person) || "—", rel: false}
-      : shownTag && {text: shownTag.textContent.trim(), rel: shownTag.classList.contains("rel")};
+    // Without a centre the line under the name stays empty.  It used to fall
+    // back to the life span, which only repeated the dates printed right below.
+    const tag = neutral || !shownTag ? null
+      : {text: shownTag.textContent.trim(), rel: shownTag.classList.contains("rel")};
     const dates = [...box.querySelectorAll(".lines u span")];
     const nameSize = fitting(person.name, t.serif, 15.5, room, 10.5);
     parts.push(`<text x="${tx}" y="${y + 25}" font-family="${xml(t.serif)}" font-size="${nameSize}" ` +

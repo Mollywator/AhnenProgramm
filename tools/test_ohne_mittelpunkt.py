@@ -114,8 +114,11 @@ class TestDialogUndZeichnung(unittest.TestCase):
     def test_neutrale_zeichnung_hebt_nichts_hervor(self):
         zeichnung = self.funktion("function diagramSVG(bilder, neutral = false){")
         self.assertIn('!neutral && box.classList.contains("centre")', zeichnung)
-        self.assertIn('neutral && shownTag.classList.contains("rel")', zeichnung,
-                      "Verwandtschaftsangaben und 'Mittelpunkt' bleiben am Kasten")
+        self.assertIn("const tag = neutral || !shownTag ? null", zeichnung,
+                      "ohne Mittelpunkt steht unter dem Namen wieder etwas - "
+                      "die Zeile soll leer bleiben")
+        self.assertNotIn("lifespan(person)", zeichnung,
+                         "die Verwandtschaftszeile wird wieder mit dem Geburtsjahr gefuellt")
         self.assertIn('const title = neutral ? ""', zeichnung,
                       "Titel und Fusszeile nennen weiter einen Mittelpunkt")
 

@@ -739,7 +739,7 @@ is never only *what format* but *what may leave the house*.
 
 **Centre:** asked first, *Mit* or *Ohne Mittelpunkt*.  It changes how the people
 are shown, never which.  *Ohne* is sent as no centre at all: the diagram drops
-the marked box, the relation tags (the box shows the life span instead), the
+the marked box, the relation tags (the line under the name stays empty), the
 in-law tint and the family islands; the book drops its "Mittelpunkt" line; the
 page loses the report's relation labels and `meta.root`; the file name carries
 no person.  With no centre in the view the choice stands on *Ohne*.  The
