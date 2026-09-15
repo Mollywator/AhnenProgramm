@@ -716,6 +716,12 @@ html[data-edit] .editonly.flex{display:flex !important}
 
 /* ---- the form the person sheet turns into ---- */
 .sheet.editing{width:min(940px,100%)}
+/* Alle anschreiben fills the window, the same gap below as the scrim leaves
+   above, and the room goes to the text of the mail. */
+.sheet.mailsheet{display:flex;flex-direction:column;min-height:calc(100vh - 88px);min-height:calc(100dvh - 88px)}
+.sheet.mailsheet .sheet-body,.sheet.mailsheet .mailtext{flex:1 1 auto;display:flex;flex-direction:column}
+.sheet.mailsheet .mailtext .field.grow{flex:1 1 auto}
+.sheet.mailsheet .mailtext textarea{flex:1 1 auto;min-height:160px}
 .sheet-foot{
   position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:12px;
   padding:14px 26px;border-top:1px solid var(--rule);background:var(--paper);
@@ -7336,7 +7342,7 @@ function mailAllHTML(){
     <div class="sheet-foot"><button class="btn" data-close="1">Schließen</button></div>
   </div></div>`;
   return `<div class="scrim" id="scrim">
-  <div class="sheet" role="dialog" aria-modal="true" aria-label="Alle anschreiben">${head}
+  <div class="sheet mailsheet" role="dialog" aria-modal="true" aria-label="Alle anschreiben">${head}
     <div class="sheet-body">
       <div class="sheet-intro"><div class="node-meta" style="font-size:14px" id="mailCount"></div></div>
       <div class="sec"><h3>An wen</h3>
@@ -7347,10 +7353,10 @@ function mailAllHTML(){
         <p class="hintline" style="margin-top:10px">Nur Lebende, die in diesem Baum nicht
           versteckt sind. Eine Adresse, die zwei Personen teilen, bekommt die Mail einmal.</p>
       </div>
-      <div class="sec"><h3>Mail</h3>
+      <div class="sec mailtext"><h3>Mail</h3>
         <label class="field"><span>Betreff</span>
           <input id="mailSubject" value="${esc(titel ? "Neuigkeiten – " + titel + "?" : "Gibt es Neuigkeiten?")}"></label>
-        <label class="field" style="margin-top:10px"><span>Text</span>
+        <label class="field grow" style="margin-top:10px"><span>Text</span>
           <textarea id="mailBody">${esc("Hallo zusammen,\n\ngibt es bei euch etwas Neues? " +
             "Geburten, Hochzeiten, Umzüge, neue Adressen – ich trage alles in den Baum ein.\n\nViele Grüße")}</textarea></label>
         <p class="hintline" style="margin-top:10px">Das Feld <b>An</b> bleibt leer, alle Adressen
