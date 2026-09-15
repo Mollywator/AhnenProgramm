@@ -38,7 +38,7 @@ class TestZurueck(unittest.TestCase):
         self.s = vorlage()
 
     def test_pfeile_stehen_unter_dem_namen(self):
-        kopf = re.search(r'<h1 id="mastTitle"></h1>(.*?)<div class="spacer">', self.s, re.S)
+        kopf = re.search(r'<h1 id="mastTitle"></h1>(.*?)<div class="tools">', self.s, re.S)
         self.assertIsNotNone(kopf)
         self.assertIn('id="navBack"', kopf.group(1))
         self.assertIn('id="navFwd"', kopf.group(1))

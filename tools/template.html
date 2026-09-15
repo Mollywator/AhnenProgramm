@@ -130,8 +130,17 @@ html[data-edit] .masthead .sub::before{
 .navbtn:hover:not(:disabled){color:var(--accent);border-color:var(--accent);background:var(--card)}
 .navbtn:disabled{opacity:.35;cursor:default}
 .navbtn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.spacer{flex:1 1 auto}
-.tools{display:flex;align-items:center;gap:10px}
+/* The bar always sits on the right.  When the window narrows it first stacks
+   into two lines beside the title - that costs the masthead only a few pixels -
+   and only when even that no longer fits does it drop under the title, still
+   right-aligned.  The minimum width is what two lines of the editor's seven
+   buttons need; a spacer element could not do this, because it only pushes
+   within its own line. */
+.tools{
+  display:flex;align-items:center;gap:10px;
+  flex:1 1 0;min-width:min(490px,100%);
+  flex-wrap:wrap;justify-content:flex-end;margin-left:auto;
+}
 .btn{
   font-family:var(--sans);font-size:13px;letter-spacing:.09em;text-transform:uppercase;
   background:transparent;color:var(--ink-2);border:1px solid var(--rule-2);
@@ -946,7 +955,6 @@ try{
       <div class="sub" id="sub"></div>
     </div>
   </div>
-  <div class="spacer"></div>
   <div class="tools">
     <!-- Filled by applyJump when this tree was reached by following a link,
          empty otherwise. It names the tree it goes back to, and it returns to
