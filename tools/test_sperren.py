@@ -60,6 +60,11 @@ class TestNurDerTitelKlebt(unittest.TestCase):
             koepfe.append(stueck[:body])
         self.assertGreater(len(koepfe), 10)
         for kopf in koepfe:
+            # The edit form is the one exception (#34): its small portrait with
+            # the pick/remove buttons rides along on purpose, so a picture is
+            # set without scrolling to the end of a long form.
+            if "portraitHeadHTML(draft)" in kopf:
+                kopf = kopf.replace("portraitHeadHTML(draft)", "")
             for fremd in ('class="legend"', 'class="node-meta"', "portrait", "<p"):
                 self.assertNotIn(fremd, kopf, "only the title belongs in a sticky head")
 

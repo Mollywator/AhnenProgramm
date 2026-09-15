@@ -658,6 +658,11 @@ a place and a sentence about what happened — **Kontakt** for the living, a
 **portrait**, attached **documents**, and one free text field for everything
 that has no box.
 
+In the edit form the portrait stands in the head, left of the name, with a
+button to pick a picture and one to remove it - small, because that head rides
+along at the top of the window, and there so a picture is set without scrolling
+past the whole life story to the end of the form.
+
 `--alles` aside, `build_site.py` leaves **contact details and documents out**
 of the page it writes.  That page gets forwarded through a family; a telephone
 number and the file name of a divorce certificate should not travel with it.

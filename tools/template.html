@@ -866,9 +866,28 @@ html[data-edit] .editonly.flex{display:flex !important}
 .offer:hover{background:var(--accent);color:var(--paper)}
 
 /* ---- portrait and documents ---- */
-.shot{display:flex;gap:16px;align-items:flex-start}
-.shot .portrait{width:96px;height:122px;object-fit:cover;border-radius:1px;box-shadow:0 0 0 1px var(--rule-2)}
-.shot .portrait.mono{display:grid;place-items:center;font-family:var(--sans);font-size:26px;color:var(--ink-3);background:var(--paper-2)}
+/* The portrait sits in the form's head, left of the name, so a picture is set
+   or taken away without scrolling to the end of a long form.  Small, because
+   the head rides along at the top of the window. */
+.headshot{display:grid;justify-items:center;gap:4px}
+.headshot .shotpick{padding:0;border:0;background:none;cursor:pointer;line-height:0;border-radius:1px}
+.headshot .portrait{width:64px;height:82px;object-fit:cover;border-radius:1px;box-shadow:0 0 0 1px var(--rule-2)}
+.headshot .portrait.mono{display:grid;place-items:center;font-family:var(--sans);font-size:20px;color:var(--ink-3);background:var(--paper-2)}
+.headshot .shotpick:hover .portrait{box-shadow:0 0 0 1px var(--accent)}
+.shotbtns{display:flex;gap:2px}
+.shotbtn{
+  display:grid;place-items:center;width:30px;height:26px;padding:0;border:0;border-radius:2px;
+  background:none;color:var(--ink-3);cursor:pointer;
+}
+.shotbtn svg{width:16px;height:16px}
+.shotbtn:hover:not(:disabled){color:var(--accent);background:var(--paper-2)}
+.shotbtn:disabled{opacity:.35;cursor:default}
+.shotbtn:focus-visible,.headshot .shotpick:focus-visible{outline:2px solid var(--ink-3);outline-offset:2px}
+@media(max-width:560px){
+  .sheet.editing .sheet-head{gap:12px;padding-left:16px;padding-right:16px}
+  .headshot .portrait{width:48px;height:61px}
+  .headshot .portrait.mono{font-size:16px}
+}
 /* what a move would do, one line per thing that travels */
 .movelist{list-style:none;margin:0;padding:0;display:grid;gap:6px}
 .movelist li{
@@ -4563,7 +4582,8 @@ function formHTML(){
 
   return `<div class="scrim" id="scrim">
   <div class="sheet editing" role="dialog" aria-modal="true" aria-label="Steckbrief bearbeiten">
-    <div class="sheet-head" style="grid-template-columns:minmax(0,1fr) auto">
+    <div class="sheet-head">
+      ${portraitHeadHTML(draft)}
       <div>
         <div class="kicker">${isNew ? "Neue Person" : "Steckbrief bearbeiten"} · Nr. ${draft.id}</div>
         <h2 id="editTitle">${esc(shown || "Ohne Namen")}</h2>
@@ -4673,17 +4693,6 @@ function formHTML(){
         <p class="hintline">So viele Stationen wie gewünscht – vom Taufeintrag bis zum letzten Umzug.</p>
       </div>
 
-      <div class="sec"><h3>Foto</h3>
-        <div class="shot">
-          ${avatarHTML(draft, "portrait")}
-          <div>
-            <button type="button" class="btn" data-upload="foto">Bild wählen …</button>
-            ${draft.photo ? `<button type="button" class="btn" data-clearphoto="1" style="margin-left:8px">Entfernen</button>` : ""}
-            <p class="hintline" style="margin-top:8px">Wird nach data/photos/ kopiert und beim nächsten Bau in die Datei für die Familie eingerechnet.</p>
-          </div>
-        </div>
-      </div>
-
       <div class="sec"><h3>Unterlagen</h3>
         <div id="docStack">${docRows()}</div>
         <button type="button" class="btn addbtn" data-upload="dokument" style="margin-top:10px">＋ Datei anhängen</button>
@@ -4742,6 +4751,29 @@ function refreshAutoName(force){
   }
   const head = document.getElementById("editTitle");
   if(head) head.textContent = (draft.name || "").trim() || "Ohne Namen";
+}
+
+/* The portrait in the form's head with its two buttons.  The picture itself
+   also picks a new one, but stays out of the tab order - the camera button
+   already is that stop, and one action should not cost two presses of Tab. */
+function portraitHeadHTML(p){
+  // a record naming a file that is gone still has something to take away
+  const has = !!(PHOTOS[p.id] || p.photo);
+  const hint = "Bild wählen – wird nach data/photos/ kopiert und beim nächsten Bau "
+             + "in die Datei für die Familie eingerechnet.";
+  return `<div class="headshot">
+        <button type="button" class="shotpick" data-upload="foto" tabindex="-1" title="${hint}"
+          aria-label="Bild wählen">${avatarHTML(p, "portrait")}</button>
+        <div class="shotbtns">
+          <button type="button" class="shotbtn" data-upload="foto" title="${hint}" aria-label="Bild wählen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+          </button>
+          <button type="button" class="shotbtn" data-clearphoto="1"${has ? "" : " disabled"}
+            title="${has ? "Bild entfernen" : "Kein Bild zum Entfernen"}" aria-label="Bild entfernen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>
+          </button>
+        </div>
+      </div>`;
 }
 
 function renderForm(){
