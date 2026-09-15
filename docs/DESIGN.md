@@ -779,7 +779,14 @@ entries is wrong in the first place anybody looks.
 
 What cannot be filtered is prose.  A life story or a source note is a sentence
 and names whoever it names, which is why those two groups - `notizen` and
-`bericht` - start unticked, like the contact details do.
+`bericht` - start unticked, like the contact details do.  In fact only three
+boxes start ticked - life dates, places and family - so that a file made in a
+hurry carries the essentials and nothing more.
+
+Contact details open into one tick per line - Telefon, Mobil, E-Mail,
+Anschrift - none ticked in advance.  `trim()` keeps only the ticked lines of a
+person's `contact` and drops the object entirely when nothing is left, so an
+export that lets the e-mail address out has no telephone number in its data.
 
 The two data formats are the exception and say so in the dialog: a `.baum` file
 and a GEDCOM are for handing over *the tree*, so they stay complete and are

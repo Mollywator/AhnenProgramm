@@ -4,9 +4,10 @@
 Three things make this more than a file copy.
 
 **Not everything may leave the house.**  The page gets forwarded through a
-family, so the export is a list of tick boxes rather than a button.  Contact
-details and scanned documents start unticked, and what is not ticked is cut out
-of the data before anything is written - not hidden by CSS, actually removed.
+family, so the export is a list of tick boxes rather than a button.  Only the
+life dates, the places and the family start ticked; contact details can be let
+out one line at a time.  What is not ticked is cut out of the data before
+anything is written - not hidden by CSS, actually removed.
 
 **A poster is not an A4 page.**  The diagram keeps its own page, as wide as it
 needs, up to the 190 inch a PDF reader will still open.  The person book is
@@ -55,6 +56,12 @@ FIELD_GROUPS = {
 
 PLACE_KEYS = ("place",)
 
+# The contact box opens into one tick per line of the address book, so that an
+# e-mail address can go out without the telephone number beside it.  Each is
+# sent as `kontakt_<key>` and only counts while `kontakt` itself is ticked.
+CONTACT_PARTS = {"telefon": "phone", "mobil": "mobile",
+                 "email": "email", "anschrift": "address"}
+
 # A PDF reader stops opening pages somewhere past 200 inch; staying under that
 # with a margin means the poster still prints at a shop.
 MAX_PAGE_IN = 190.0
@@ -94,8 +101,17 @@ def trim(data: dict, fields: dict) -> dict:
             drop.update(keys)
     if not fields.get("orte"):
         drop.add("residences")
+    # Unticked parts are cut out like any other field.  A contact with nothing
+    # ticked left in it is no contact at all, rather than an empty object.
+    contact_keep = {key for part, key in CONTACT_PARTS.items()
+                    if fields.get("kontakt") and fields.get("kontakt_" + part)}
+    if not contact_keep:
+        drop.add("contact")
 
     for person in out["people"]:
+        if isinstance(person.get("contact"), dict) and "contact" not in drop:
+            kept = {k: v for k, v in person["contact"].items() if k in contact_keep and v}
+            person["contact"] = kept or None
         for key in drop:
             if key in ("parents", "spouses", "children", "events", "notes",
                        "sources", "documents", "residences"):

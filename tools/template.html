@@ -5715,7 +5715,8 @@ document.getElementById("helpBtn").addEventListener("click", () => {
           </p>
           <ul>
             <li><span>Mit oder ohne Mittelpunkt</span><span>Ganz oben im Dialog. <b>Ohne</b> gibt dieselben Personen aus, aber niemand ist hervorgehoben und keiner heißt „Onkel“ oder „Cousine“ – gedacht für einen Stammbaum, der an die ganze Familie geht. Ist in der Ansicht niemand Mittelpunkt, steht die Wahl fest auf <b>Ohne</b>.</span></li>
-            <li><span>Häkchen bei den Angaben</span><span>Was nicht angehakt ist, wird aus den Daten <b>herausgeschnitten</b> – nicht nur ausgeblendet. Kontaktdaten, Unterlagen und der Originaltext aus dem Bericht sind mit Absicht von vornherein ab.</span></li>
+            <li><span>Häkchen bei den Angaben</span><span>Was nicht angehakt ist, wird aus den Daten <b>herausgeschnitten</b> – nicht nur ausgeblendet. Vorab angehakt sind nur Geburt und Tod, die Orte und die Familie; Beruf, Lebenslauf, Portraits, Notizen und alles Weitere kommen nur mit, wenn man sie selbst anhakt.</span></li>
+            <li><span>Kontaktdaten</span><span>Wer <b>Kontaktdaten Lebender</b> anhakt, wählt darunter einzeln aus: Telefon, Mobil, E-Mail, Anschrift. Nur was dort angehakt ist, geht mit – zum Beispiel nur die E-Mail.</span></li>
             <li><span>PDF</span><span>Erst das Diagramm auf einer einzigen Seite, so breit wie es sein muss, dann das Personenbuch auf A4. Wahlweise in einer Datei oder in zweien.</span></li>
             <li><span>SVG</span><span>Das Diagramm als Zeichnung ohne Größengrenze. Bleibt beim Hineinzoomen scharf, öffnet sich auch auf dem Handy im Browser, und der Copyshop kann daraus ein Poster machen.</span></li>
             <li><span>PNG</span><span>Nur für die kleineren Ansichten. Browser hören bei 16 384 Pixeln auf – <b>Ganze Linie</b> und <b>Alle</b> sind breiter, dort ist der Haken gesperrt und sagt auch, warum.</span></li>
@@ -6462,13 +6463,22 @@ const EXPORT_FIELDS = [
   ["lebensdaten", "Geburt und Tod", true],
   ["orte", "Orte – Geburt, Tod, Wohnorte", true],
   ["familie", "Eltern, Ehen, Kinder", true],
-  ["beruf", "Beruf und Konfession", true],
-  ["lebenslauf", "Lebenslauf", true],
-  ["fotos", "Portraits", true],
-  ["notizen", "Notizen und Freitext", true],
+  ["beruf", "Beruf und Konfession", false],
+  ["lebenslauf", "Lebenslauf", false],
+  ["fotos", "Portraits", false],
+  ["notizen", "Notizen und Freitext", false],
   ["bericht", "Originaltext und Quellen aus dem Bericht", false],
   ["kontakt", "Kontaktdaten Lebender", false],
   ["unterlagen", "Unterlagen – die Dateien selbst", false],
+];
+
+/* Opens under "Kontaktdaten Lebender" once that is ticked.  None is ticked in
+   advance: whoever lets contact details out names each line of them. */
+const EXPORT_CONTACT = [
+  ["telefon", "Telefon"],
+  ["mobil", "Mobil"],
+  ["email", "E-Mail"],
+  ["anschrift", "Anschrift"],
 ];
 
 /* ---- reading the light palette ------------------------------------------ */
@@ -6774,9 +6784,16 @@ function exportHTML(){
 
       <div class="sec"><h3>Welche Angaben dürfen mit?</h3>
         <p class="hintline" style="margin:0 0 10px">Gilt für das Buch und für die HTML-Seite.
-          Kontaktdaten und Unterlagen sind mit Absicht abgehakt – die Datei wird weitergereicht.</p>
+          Vorab sind nur Lebensdaten, Orte und Familie angehakt – die Datei wird weitergereicht.
+          Alles Weitere kommt nur mit, wenn du es selbst anhakst.</p>
         <div class="fields two">
           ${EXPORT_FIELDS.map(([key, label, on]) => box("feld_" + key, label, on)).join("")}
+        </div>
+        <div id="kontaktTeile" hidden style="margin-top:12px">
+          <p class="hintline" style="margin:0 0 8px">Welche Kontaktdaten? Nur die angehakten gehen mit.</p>
+          <div class="fields two">
+            ${EXPORT_CONTACT.map(([key, label]) => box("kontakt_" + key, label, false)).join("")}
+          </div>
         </div>
       </div>
     </div>
@@ -7453,6 +7470,8 @@ async function runExport(){
 
   const fields = {};
   for(const [key] of EXPORT_FIELDS) fields[key] = on("feld_" + key);
+  // the lines under Kontaktdaten stay ticked while hidden, so the main box decides
+  for(const [key] of EXPORT_CONTACT) fields["kontakt_" + key] = fields.kontakt && on("kontakt_" + key);
   // "Ohne Mittelpunkt" is sent as no centre at all, so the program has no name
   // to put on the book, the file or the page - see `neutral` in export.py
   const withCentre = centre !== null && on("expCentreWith");
@@ -7721,6 +7740,9 @@ if(EDIT){
     closeSheetHard();
     document.body.insertAdjacentHTML("beforeend", exportHTML());
     document.body.style.overflow = "hidden";
+    const kontakt = document.getElementById("feld_kontakt");
+    const teile = document.getElementById("kontaktTeile");
+    if(kontakt && teile) kontakt.addEventListener("change", () => { teile.hidden = !kontakt.checked; });
   };
   document.getElementById("exportBtn").addEventListener("click", openExport);
 

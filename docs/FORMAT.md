@@ -92,7 +92,7 @@ list where the field is a list — a person is never a short object.
 | `residences` | list | places lived, each with a place and a time |
 | `occupation` | string or null | |
 | `religion` | string or null | |
-| `contact` | object or null | for the living, kept out of every export |
+| `contact` | object or null | for the living, kept out of every export unless ticked, line by line |
 | `bio`, `extra`, `freetext` | string or null | prose |
 | `note_text`, `source_text` | string or null | the raw text the parser found |
 | `notes`, `sources` | list | the same, once separated |
