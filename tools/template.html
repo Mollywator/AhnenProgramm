@@ -1034,7 +1034,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.13.0";
+const VERSION = "1.14.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -5664,6 +5664,7 @@ document.getElementById("helpBtn").addEventListener("click", () => {
             <li><span>Knopf <b>Bearbeiten</b></span><span>Rechts oben im Personenblatt. Das Blatt bleibt zum Lesen da; erst dieser Knopf macht Eingabefelder daraus.</span></li>
             <li><span>Verwandtschaft</span><span>Nur <b>Eltern</b>, <b>Ehe</b> und <b>Kinder</b> werden eingetragen. Alles andere – Großonkel, Neffe 2. Grades, 3 x Ur-Großvater – rechnet das Programm daraus selbst aus, und zwar für jeden Mittelpunkt neu.</span></li>
             <li><span>Lebenslauf</span><span>So viele Stationen wie gewünscht, jede mit Datum, Ort und einem Satz dazu. Ein Datum darf auch nur aus dem Jahr bestehen.</span></li>
+            <li><span>Datum tippen</span><span>In einem Zug wie auf Papier: <b>13.08.1921</b>. Punkt, Schrägstrich, Strich oder Tab springen ins nächste Kästchen, ein voller Tag oder Monat springt von selbst. Rücktaste im leeren Kästchen geht eins zurück.</span></li>
             <li><span>Unterlagen</span><span>Urkunden und Scans hängen an der Person. Sie liegen im Ordner <b>data\dokumente</b> und gehen <b>nicht</b> mit, wenn die Datei für die Familie gebaut wird.</span></li>
             <li><span>Wo alles landet</span><span>In <b>data\edits.json</b> – nie in der Datei aus der PDF. Deshalb darf der Bericht jederzeit neu eingelesen werden, ohne dass hier etwas verlorengeht.</span></li>
           </ul>
@@ -7692,6 +7693,107 @@ if(EDIT){
   document.addEventListener("focusout", e => {
     const field = e.target.closest('#editForm [data-k="name"]');
     if(field && draft && !draft._nameManual) refreshAutoName(true);
+  });
+
+  /* ---- typing a date as on paper ----------------------------------------
+     13.08.1921 in one go, without the mouse.  The three boxes of `dateField`
+     stay three boxes; what changes is how the caret travels between them.
+
+     A separator moves on - `.`, `/`, `-`, `,` (the dot on a German number pad)
+     or a space - and never lands in a box.  A full day or month moves on by
+     itself, and so does a digit no second digit could still make valid (a day
+     of 4, a month of 2).  After such a jump the separator the hand types anyway
+     is swallowed, so "13.08.1921" and "13081921" come out the same.
+
+     Separators are caught twice.  On a keyboard `keydown` sees them and the
+     character never appears; a phone's keyboard often reports no usable key,
+     so `input` strips whatever got through and does the same thing with it.
+     That second path also spreads a pasted "13.08.1921" over the three boxes.
+
+     Values are written back through a synthetic `input` event, so the draft,
+     the unsaved state and a couple's shared dates follow the one handler above.
+     Padding "8" to "08" changes no number and fires nothing - leaving a box
+     must not turn an untouched form into an unsaved one. */
+  const DATE_SEP = /[.\/\-, ]/;
+  let dateLanded = null;   // the box a jump just moved into
+  const datePart = t => t && t.closest ? t.closest("#editForm .datebox input") : null;
+  const dateBoxes = el => [...el.closest(".datebox").querySelectorAll("input")];
+  const datePad = v => /^[1-9]$/.test(v) ? "0" + v : v;
+  const dateNum = s => { const n = parseInt(s, 10); return Number.isFinite(n) ? n : null; };
+  const dateSet = (el, v) => {
+    if(el.value === v) return;
+    const before = el.value;
+    el.value = v;
+    if(dateNum(before) !== dateNum(v)) el.dispatchEvent(new Event("input", {bubbles: true}));
+  };
+  // Landing selects what is there, so a date being corrected is typed over.
+  const dateGo = el => { dateLanded = el; el.focus(); el.select(); };
+  const dateBack = el => { dateLanded = null; el.focus(); const n = el.value.length; el.setSelectionRange(n, n); };
+
+  document.addEventListener("focusin", e => { if(e.target !== dateLanded) dateLanded = null; });
+
+  // Capture phase: the page-wide "/" opens the search, and here it must not.
+  document.addEventListener("keydown", e => {
+    const el = datePart(e.target);
+    if(!el || e.ctrlKey || e.altKey || e.metaKey) return;
+    const boxes = dateBoxes(el), i = boxes.indexOf(el);
+    if(e.key.length === 1 && DATE_SEP.test(e.key)){
+      e.preventDefault(); e.stopImmediatePropagation();
+      if(dateLanded === el){ dateLanded = null; return; }
+      if(i < boxes.length - 1){ dateSet(el, datePad(el.value)); dateGo(boxes[i + 1]); }
+      return;
+    }
+    // Tab moves on by itself - unless a jump already did, like the dot above
+    if(e.key === "Tab" && !e.shiftKey && dateLanded === el){
+      e.preventDefault();
+      dateLanded = null;
+      return;
+    }
+    if(e.key === "Backspace" && i > 0 && el.value === ""){
+      e.preventDefault();
+      dateBack(boxes[i - 1]);
+    }
+  }, true);
+
+  document.addEventListener("input", e => {
+    if(!e.isTrusted) return;
+    const el = datePart(e.target);
+    if(!el) return;
+    const boxes = dateBoxes(el);
+    let i = boxes.indexOf(el);
+    const landed = dateLanded === el;
+    dateLanded = null;
+    const pieces = el.value.split(DATE_SEP).map(s => s.replace(/\D/g, ""));
+    // a year pasted into the day or month box is still a year
+    if(i < 2 && pieces.length === 1 && pieces[0].length > 2 && e.inputType === "insertFromPaste"){
+      dateSet(el, "");
+      dateSet(boxes[2], pieces[0].slice(0, 4));
+      dateGo(boxes[2]);
+      return;
+    }
+    if(landed && pieces.length > 1 && pieces[0] === "") pieces.shift();
+    for(;;){
+      const box = boxes[i], last = i === boxes.length - 1;
+      let v = pieces.shift() || "";
+      // a first digit no second one could complete fills the box alone
+      const cap = last ? 4 : v !== "" && +v[0] > (i === 0 ? 3 : 1) ? 1 : 2;
+      if(!last && v.length > cap) pieces.unshift(v.slice(cap));
+      v = v.slice(0, cap);
+      const full = !last && v.length === cap;
+      const onward = !last && (pieces.length > 0 || full);
+      dateSet(box, onward ? datePad(v) : v);
+      if(!onward){ if(box !== el) dateGo(box); return; }
+      i++;
+      // a trailing separator moves on but leaves the next box as it was
+      if(!pieces.length || (pieces.length === 1 && pieces[0] === "")){ dateGo(boxes[i]); return; }
+    }
+  });
+
+  // Tab and Shift+Tab move between the boxes on their own; a single digit left
+  // behind is written the way it would be on paper.
+  document.addEventListener("focusout", e => {
+    const el = datePart(e.target);
+    if(el && dateBoxes(el).indexOf(el) < 2) dateSet(el, datePad(el.value.trim()));
   });
 
   /* The role beside a name.  A `change` rather than an `input`, because a

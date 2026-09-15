@@ -1,6 +1,6 @@
 # Ahnenprogramm
 
-**Version 1.13.0** · by Mollywator · MIT licence
+**Version 1.14.0** · by Mollywator · MIT licence
 
 Reads a genealogy report PDF and turns it into **one self-contained HTML page**
 that works offline and can be passed around a family — plus a small Windows
