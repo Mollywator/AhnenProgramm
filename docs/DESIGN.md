@@ -662,6 +662,17 @@ that has no box.
 of the page it writes.  That page gets forwarded through a family; a telephone
 number and the file name of a divorce certificate should not travel with it.
 
+An e-mail address in the person sheet is a `mailto:` link, in the editor and in
+any exported page that carries it; text that is not an address stays text.
+**Optionen → Alle anschreiben** gathers the addresses of the living who are not
+hidden in the open tree, one per address even when two people share it, lets
+single people be unticked and opens one mail with all of them as **BCC** - the
+yearly "anything new?" without handing everybody the others' addresses.  A
+`mailto:` link is only passed on reliably up to about 2000 characters, so past
+that the addresses go to the clipboard, separated by `;`, and the mail opens
+without them.  "Adressen kopieren" does the same by hand for a mail program
+that refuses the link.
+
 ### What a connection is called
 
 A tie used to be a number in a list and nothing else.  Two people were in

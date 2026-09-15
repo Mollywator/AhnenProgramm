@@ -885,6 +885,8 @@ html[data-edit] .editonly.flex{display:flex !important}
 .docrow .kind{font-family:var(--sans);font-size:15px;color:var(--ink-3);text-align:center}
 .docrow a{color:inherit;text-decoration:none;border-bottom:1px solid var(--rule-2)}
 .docrow a:hover{color:var(--accent);border-color:var(--accent)}
+.maillink{color:inherit;text-decoration:none;border-bottom:1px solid var(--rule-2);overflow-wrap:anywhere}
+.maillink:hover{color:var(--accent);border-color:var(--accent)}
 .docrow small{display:block;font-family:var(--sans);font-size:11.5px;color:var(--ink-3);letter-spacing:.05em}
 
 /* ---- word from the program, bottom right ---- */
@@ -2147,6 +2149,52 @@ function isGone(p){
   return !!year && (new Date().getFullYear() - year) > 110;
 }
 
+/* ---- writing to the family -------------------------------------------------
+   An address in the person sheet is a mailto link, and "Alle anschreiben" under
+   Optionen puts every living relative's address into one mail as BCC, so the
+   yearly "anything new?" goes out without showing anybody the others' addresses.
+
+   A mailto link is only passed on reliably up to about 2000 characters on
+   Windows, and some mail programs take less.  Past that the addresses go to the
+   clipboard and the mail opens without them.  The field may hold more than one
+   address; anything that does not look like one stays plain text. */
+function mailAddresses(field){
+  return String(field || "").split(/[;,\s]+/)
+    .filter(a => /^[^\s@<>()\[\]\\,;:"]+@[^\s@<>()\[\]\\,;:"]+\.[^\s@<>()\[\]\\,;:".]+$/.test(a));
+}
+
+function mailtoHref(bcc, subject, body){
+  // `@` is left readable; everything else a mail program could misread is encoded
+  const enc = s => encodeURIComponent(s).replace(/%40/g, "@");
+  const query = [];
+  if(bcc.length) query.push("bcc=" + bcc.map(enc).join(","));
+  if(subject) query.push("subject=" + enc(subject));
+  if(body) query.push("body=" + enc(body).replace(/%0A/g, "%0D%0A"));
+  return "mailto:" + (query.length ? "?" + query.join("&") : "");
+}
+
+/* Who "Alle anschreiben" offers: the living, not hidden in this tree, with at
+   least one usable address. */
+function mailRecipients(people){
+  return people.filter(p => !isGone(p) && !hiddenHere(p))
+    .map(p => ({id: p.id, name: p.name, addresses: mailAddresses((p.contact || {}).email)}))
+    .filter(r => r.addresses.length);
+}
+
+/* The mail for the people still ticked.  An address two people share goes in
+   once; `tooLong` says the link would not survive and `bare` is the one to open
+   instead. */
+function mailToAll(recipients, subject, body){
+  const seen = new Set(), bcc = [];
+  for(const r of recipients) for(const a of r.addresses){
+    if(seen.has(a.toLowerCase())) continue;
+    seen.add(a.toLowerCase());
+    bcc.push(a);
+  }
+  const href = mailtoHref(bcc, subject, body);
+  return {bcc, href, tooLong: href.length > 2000, bare: mailtoHref([], subject, body)};
+}
+
 function thumbHTML(p){
   const src = PHOTOS[p.id];
   return src
@@ -2678,10 +2726,15 @@ function sheetHTML(p){
       <span></span></div>`).join("")}</div></div>`);
 
   if(p.contact && Object.values(p.contact).some(Boolean)){
+    // an address becomes a link to a new mail; whatever else is in the field stays text
+    const mailLinks = field => String(field).split(/([;,\s]+)/).map(bit =>
+      mailAddresses(bit).length
+        ? `<a class="maillink" href="mailto:${esc(encodeURIComponent(bit).replace(/%40/g, "@"))}">${esc(bit)}</a>`
+        : esc(bit)).join("");
     const rows = [["Telefon", p.contact.phone], ["Mobil", p.contact.mobile],
                   ["E-Mail", p.contact.email], ["Anschrift", p.contact.address]];
     sections.push(`<div class="sec"><h3>Kontakt</h3><dl class="kv">${rows.filter(r => r[1]).map(r =>
-      `<div class="fact"><dt>${esc(r[0])}</dt><dd>${esc(r[1])}</dd></div>`).join("")}</dl></div>`);
+      `<div class="fact"><dt>${esc(r[0])}</dt><dd>${r[0] === "E-Mail" ? mailLinks(r[1]) : esc(r[1])}</dd></div>`).join("")}</dl></div>`);
   }
 
   if(p.sources && p.sources.length) sections.push(`<div class="sec"><h3>Quellen</h3>
@@ -7183,6 +7236,13 @@ function optionsHTML(){
           werden trotzdem dem richtigen Paar zugeordnet.</p>
       </div>
 
+      <div class="sec"><h3>Rundmail</h3>
+        <p class="hintline">Eine Mail an alle Lebenden in diesem Baum, die eine E-Mail-Adresse
+          haben – alle Adressen als BCC, so sieht niemand die der anderen. Vor dem Öffnen lassen
+          sich einzelne Personen abwählen.</p>
+        <div style="margin-top:12px"><button class="btn" id="mailAllBtn">Alle anschreiben</button></div>
+      </div>
+
       <div class="sec"><h3>Wo alles liegt</h3>
         <p class="hintline" style="margin:0 0 10px;font-family:var(--mono,var(--sans))">
           ${esc(EDIT.datenordner || "")}</p>
@@ -7218,6 +7278,125 @@ function optionsHTML(){
       <span class="saveinfo" id="optInfo"></span>
     </div>
   </div></div>`;
+}
+
+/* ---- Alle anschreiben ------------------------------------------------------
+   The list is worked out when the sheet opens; what the reader unticks is only
+   kept on screen, never in the tree. */
+function mailAllHTML(){
+  const alle = mailRecipients(DATA.people);
+  const titel = (DATA.meta.title || "").trim();
+  const head = `<div class="sheet-head" style="grid-template-columns:minmax(0,1fr) auto">
+      <div>
+        <div class="kicker">Optionen · Alle anschreiben</div>
+        <h2>Gibt es Neuigkeiten?</h2>
+      </div>
+      <button class="closer" data-close="1" aria-label="Schließen">×</button>
+    </div>`;
+  if(!alle.length) return `<div class="scrim" id="scrim">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Alle anschreiben">${head}
+    <div class="sheet-body"><div class="sec">
+      <p class="prose">In diesem Baum hat keine lebende Person eine E-Mail-Adresse – es
+        gibt keine einzige E-Mail-Adresse, an die eine Mail gehen könnte.</p>
+      <p class="hintline" style="margin-top:10px">Eintragen lässt sie sich im Personenblatt unter
+        <b>Bearbeiten → Kontakt</b>.</p>
+    </div></div>
+    <div class="sheet-foot"><button class="btn" data-close="1">Schließen</button></div>
+  </div></div>`;
+  return `<div class="scrim" id="scrim">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Alle anschreiben">${head}
+    <div class="sheet-body">
+      <div class="sheet-intro"><div class="node-meta" style="font-size:14px" id="mailCount"></div></div>
+      <div class="sec"><h3>An wen</h3>
+        <div style="display:flex;flex-direction:column;gap:6px">${alle.map(r =>
+          `<label class="field check"><input type="checkbox" data-mail-person="${r.id}" checked><span>${
+            esc(r.name)} · ${esc(r.addresses.join(", "))}</span></label>`).join("")}
+        </div>
+        <p class="hintline" style="margin-top:10px">Nur Lebende, die in diesem Baum nicht
+          versteckt sind. Eine Adresse, die zwei Personen teilen, bekommt die Mail einmal.</p>
+      </div>
+      <div class="sec"><h3>Mail</h3>
+        <label class="field"><span>Betreff</span>
+          <input id="mailSubject" value="${esc(titel ? "Neuigkeiten – " + titel + "?" : "Gibt es Neuigkeiten?")}"></label>
+        <label class="field" style="margin-top:10px"><span>Text</span>
+          <textarea id="mailBody">${esc("Hallo zusammen,\n\ngibt es bei euch etwas Neues? " +
+            "Geburten, Hochzeiten, Umzüge, neue Adressen – ich trage alles in den Baum ein.\n\nViele Grüße")}</textarea></label>
+        <p class="hintline" style="margin-top:10px">Das Feld <b>An</b> bleibt leer, alle Adressen
+          stehen in <b>BCC</b>. Nimmt das E-Mail-Programm den Link nicht an, hilft
+          „Adressen kopieren“.</p>
+      </div>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn" data-close="1">Schließen</button>
+      <button class="btn" id="mailCopy">Adressen kopieren</button>
+      <span class="grow"></span>
+      <span class="saveinfo" id="mailInfo"></span>
+      <button class="btn primary" id="mailSend">Mail öffnen</button>
+    </div>
+  </div></div>`;
+}
+
+function mailPicked(){
+  const an = new Set([...document.querySelectorAll("[data-mail-person]")]
+    .filter(box => box.checked).map(box => +box.dataset.mailPerson));
+  return mailRecipients(DATA.people).filter(r => an.has(r.id));
+}
+
+function mailCountText(){
+  const out = document.getElementById("mailCount");
+  if(!out) return;
+  const leute = mailPicked(), n = mailToAll(leute, "", "").bcc.length;
+  out.textContent = n + (n === 1 ? " Adresse" : " Adressen") + " von " + leute.length +
+    (leute.length === 1 ? " Person" : " Personen") + ", als BCC";
+}
+
+/* navigator.clipboard wants a secure page; the editor on 127.0.0.1 is one, but
+   the old way stays behind it for a browser that thinks otherwise. */
+async function copyText(text){
+  try{ await navigator.clipboard.writeText(text); return true; }catch(_){}
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.style.cssText = "position:fixed;opacity:0";
+  document.body.appendChild(area);
+  area.select();
+  let ok = false;
+  try{ ok = document.execCommand("copy"); }catch(_){}
+  area.remove();
+  return ok;
+}
+
+function openMailto(href){
+  const a = document.createElement("a");
+  a.href = href;
+  a.click();
+}
+
+async function copyMailAll(){
+  const {bcc} = mailToAll(mailPicked(), "", "");
+  if(!bcc.length) return say("Niemand ausgewählt.", true);
+  if(await copyText(bcc.join("; ")))
+    say(bcc.length + (bcc.length === 1 ? " Adresse" : " Adressen") + " kopiert – in der Mail ins Feld BCC einfügen.", false, 6000);
+  else say("Kopieren ging nicht.", true);
+}
+
+async function sendMailAll(){
+  const subject = (document.getElementById("mailSubject") || {}).value || "";
+  const body = (document.getElementById("mailBody") || {}).value || "";
+  const mail = mailToAll(mailPicked(), subject.trim(), body);
+  if(!mail.bcc.length) return say("Niemand ausgewählt.", true);
+  const info = document.getElementById("mailInfo");
+  if(!mail.tooLong){
+    openMailto(mail.href);
+    if(info) info.textContent = "Mail an " + mail.bcc.length + " geöffnet.";
+    return;
+  }
+  // too long for one link: the addresses go by clipboard, the rest by link
+  const copied = await copyText(mail.bcc.join("; "));
+  openMailto(mail.bare);
+  if(copied) say("Zu viele Adressen für einen Link. Sie sind kopiert – in der neuen Mail " +
+                 "ins Feld BCC einfügen.", false, 12000);
+  else say("Zu viele Adressen für einen Link, und Kopieren ging nicht.", true);
+  if(info) info.textContent = copied ? "Adressen in der Zwischenablage." : "";
 }
 
 /* ---- bringing a tree in --------------------------------------------------- */
@@ -7922,6 +8101,7 @@ if(EDIT){
      dropdown fires `input` while it is still being scrolled through with the
      keyboard and half of what is passed would be a choice nobody made. */
   document.addEventListener("change", e => {
+    if(e.target.matches("[data-mail-person]")){ mailCountText(); return; }
     if(e.target.id === "optStationen"){
       const an = e.target.checked;
       api("/api/einstellung?k=" + encodeURIComponent(EDIT.token), {stationen_auto: an})
@@ -8075,6 +8255,15 @@ if(EDIT){
     if(quelle){ setImportQuelle(quelle.dataset.quelle); return; }
     const waehler = e.target.closest("[data-pick]");
     if(waehler){ ordnerWaehlen(waehler.dataset.pick, waehler.dataset.erkannt); return; }
+    if(e.target.closest("#mailAllBtn")){
+      closeSheetHard();
+      document.body.insertAdjacentHTML("beforeend", mailAllHTML());
+      document.body.style.overflow = "hidden";
+      mailCountText();
+      return;
+    }
+    if(e.target.closest("#mailSend")){ sendMailAll(); return; }
+    if(e.target.closest("#mailCopy")){ copyMailAll(); return; }
     if(e.target.closest("#openData")){
       api("/api/open-folder?k=" + encodeURIComponent(EDIT.token), {was: "daten"})
         .catch(err => say(err.message, true));
