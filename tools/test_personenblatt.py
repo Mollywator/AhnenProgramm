@@ -282,6 +282,57 @@ class TestDasBildWirdGross(unittest.TestCase):
         self.assertEqual(stelle.count("stopImmediatePropagation"), 3)
 
 
+class TestGeburtZuerstTodDahinter(unittest.TestCase):
+    """Birth is what is known of almost everyone, so it is always there; death
+    and burial wait behind "Gestorben" unless something is already known."""
+
+    def setUp(self):
+        self.s = vorlage()
+        self.form = rumpf(self.s, "formHTML")
+
+    def test_konfession_steht_in_der_geburtszeile(self):
+        zeile = self.form[self.form.index('class="birthrow"'):]
+        zeile = zeile[:zeile.index("Geburtsort")]
+        self.assertIn('"religion"', zeile, "die Konfession steht nicht neben der Geburt")
+        self.assertEqual(self.form.count('"religion"'), 1,
+                         "die Konfession steht zweimal im Formular")
+
+    def test_beruf_bleibt_unter_leben(self):
+        leben = self.form[self.form.index("<h3>Leben</h3>"):]
+        leben = leben[:leben.index("<h3>Wohnorte</h3>")]
+        self.assertIn('"occupation"', leben)
+
+    def test_die_geburtszeile_bricht_um(self):
+        self.assertIn(".birthrow{display:flex;flex-wrap:wrap", self.s)
+
+    def test_der_knopf_kommt_vor_dem_todesblock(self):
+        knopf = self.form.index("data-deathtoggle")
+        self.assertLess(self.form.index("<h3>Geburt</h3>"), knopf)
+        self.assertLess(knopf, self.form.index("<h3>Tod und Beerdigung</h3>"))
+        self.assertIn("✝ Gestorben", self.form)
+
+    def test_der_todesblock_ist_nur_offen_wenn_gewollt(self):
+        self.assertIn('id="deathBox"${deathOpen ? "" : " hidden"}', self.form)
+
+    def test_vorhandene_sterbedaten_oeffnen_ihn(self):
+        self.assertIn("deathOpen = hasDeathData(draft);", rumpf(self.s, "openEditor"))
+        pruefung = rumpf(self.s, "hasDeathData")
+        for feld in ("death.year", "death.place", "death.cause",
+                     "burial.year", "burial.place"):
+            self.assertIn('"%s"' % feld, pruefung, "hasDeathData uebersieht " + feld)
+
+    def test_zuklappen_loescht_nichts(self):
+        stelle = self.s[self.s.index('closest("[data-deathtoggle]")'):]
+        stelle = stelle[:stelle.index('closest("[data-add]")')]
+        self.assertNotIn("draft.", stelle, "der Knopf fasst den Entwurf an")
+        self.assertNotIn("markDirty", stelle)
+
+    def test_der_hinweis_bleibt_im_todesblock(self):
+        block = self.form[self.form.index('id="deathBox"'):]
+        block = block[:block.index("<h3>Leben</h3>")]
+        self.assertIn("Leer lassen, solange die Person lebt", block)
+
+
 class TestDerAusgangLaeuftMit(unittest.TestCase):
 
     def test_der_kopf_klebt_wie_die_speicherleiste(self):

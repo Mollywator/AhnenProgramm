@@ -718,6 +718,17 @@ html[data-edit] .editonly.flex{display:flex !important}
 .fields{display:grid;gap:12px}
 .fields.two{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
 .fields.three{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+/* Date, the tick and the denomination on one line. A flex row rather than the
+   grid above: the date boxes have a fixed width a grid column would squeeze,
+   and on a phone the denomination simply drops under the date. */
+.birthrow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 20px}
+.birthrow > .field{flex:0 0 auto}
+.birthrow > .field.check{padding-bottom:9px}
+.birthrow > .field:last-child{flex:1 1 220px}
+.deathtoggle{margin-top:14px;font-size:12px}
+.deathtoggle::after{content:" ▾"}
+.deathtoggle[aria-expanded="true"]::after{content:" ▴"}
+.deathtoggle[aria-expanded="true"]{border-color:var(--ink-3)}
 .field{display:flex;flex-direction:column;gap:4px;min-width:0}
 .field > span{
   font-family:var(--sans);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
@@ -3910,6 +3921,17 @@ const SPOUSE_ROLES = [
    text in it is shown anyway, so these only matter for empty ones. */
 let openTieNotes = new Set();
 let openEventNotes = new Set();
+/* Death and burial fold away behind "Gestorben": most people being entered
+   are alive, and a block of empty death fields is noise to them. Folding it
+   is only a view - nothing it holds is cleared. */
+let deathOpen = false;
+function hasDeathData(p){
+  // `text` too: a date out of the report can survive only as its wording
+  return ["death.day", "death.month", "death.year", "death.approx", "death.place",
+          "death.cause", "death.text", "burial.day", "burial.month", "burial.year",
+          "burial.place", "burial.text"]
+    .some(path => { const v = getPath(p, path); return v != null && v !== "" && v !== false; });
+}
 
 /* Under each partner: when it began and where, and - to the right of it -
    whether and when it ended.  A second marriage after a divorce is simply the
@@ -4517,11 +4539,16 @@ function formHTML(){
       </div>
 
       <div class="sec"><h3>Geburt</h3>
-        <div class="fields two">${dateField("Geboren am", "birth")}${checkField("Datum nur ungefähr", "birth.approx")}</div>
+        <div class="birthrow">
+          ${dateField("Geboren am", "birth")}${checkField("Datum nur ungefähr", "birth.approx")}
+          ${textField("Konfession", "religion", {placeholder: "evangelisch-lutherisch …"})}
+        </div>
         <div style="margin-top:12px">${textField("Geburtsort", "birth.place", {placeholder: "Ort, Kreis, Land"})}</div>
+        <button type="button" class="btn deathtoggle" data-deathtoggle="1" aria-controls="deathBox"
+          aria-expanded="${deathOpen}">✝ Gestorben</button>
       </div>
 
-      <div class="sec"><h3>Tod und Beerdigung</h3>
+      <div class="sec" id="deathBox"${deathOpen ? "" : " hidden"}><h3>Tod und Beerdigung</h3>
         <div class="fields two">${dateField("Gestorben am", "death")}${checkField("Datum nur ungefähr", "death.approx")}</div>
         <div class="fields two" style="margin-top:12px">
           ${textField("Sterbeort", "death.place")}
@@ -4537,7 +4564,6 @@ function formHTML(){
       <div class="sec"><h3>Leben</h3>
         <div class="fields two">
           ${textField("Beruf", "occupation")}
-          ${textField("Konfession", "religion", {placeholder: "evangelisch-lutherisch …"})}
         </div>
       </div>
 
@@ -4733,6 +4759,7 @@ function openEditor(id, seed){
   if(!draft.spouse_info || Array.isArray(draft.spouse_info)) draft.spouse_info = {};
   openTieNotes = new Set();
   openEventNotes = new Set();
+  deathOpen = hasDeathData(draft);
   /* Where the display name stands: written by the program, and with or without
      the birth name - or typed by hand, in which case nothing here touches it.
      A name the report printed rarely matches either built form, so a person out
@@ -8021,6 +8048,16 @@ if(EDIT){
       renderForm();
       const box = document.querySelector(`#editForm [data-k="events.${at}.text"]`);
       if(box) box.focus();
+      return;
+    }
+    /* Shown and hidden in place rather than redrawn: a redraw would take the
+       focus off the button, and there is nothing in the block to recompute. */
+    const deathToggle = e.target.closest("[data-deathtoggle]");
+    if(deathToggle){
+      deathOpen = !deathOpen;
+      deathToggle.setAttribute("aria-expanded", String(deathOpen));
+      const box = document.getElementById("deathBox");
+      if(box) box.hidden = !deathOpen;
       return;
     }
     const add = e.target.closest("[data-add]");
