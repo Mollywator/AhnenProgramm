@@ -298,8 +298,8 @@ class TestGeburtZuerstTodDahinter(unittest.TestCase):
                          "die Konfession steht zweimal im Formular")
 
     def test_beruf_bleibt_unter_leben(self):
-        leben = self.form[self.form.index("<h3>Leben</h3>"):]
-        leben = leben[:leben.index("<h3>Wohnorte</h3>")]
+        leben = self.form[self.form.index("<span>Leben</span>"):]
+        leben = leben[:leben.index("<span>Wohnorte</span>")]
         self.assertIn('"occupation"', leben)
 
     def test_die_geburtszeile_bricht_um(self):
@@ -329,7 +329,7 @@ class TestGeburtZuerstTodDahinter(unittest.TestCase):
 
     def test_der_hinweis_bleibt_im_todesblock(self):
         block = self.form[self.form.index('id="deathBox"'):]
-        block = block[:block.index("<h3>Leben</h3>")]
+        block = block[:block.index("<span>Leben</span>")]
         self.assertIn("Leer lassen, solange die Person lebt", block)
 
 

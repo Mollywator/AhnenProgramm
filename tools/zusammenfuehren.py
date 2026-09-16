@@ -229,7 +229,10 @@ def ausfuehren(tree: dict, behalten, entfernt, wahl: dict | None,
         m.pop(str(a), None)
         m.pop(str(b), None)
         neu[kind] = m
-    bekannt = {k for k, _, _ in FELDER} | set(KINDS) | {"id", "children", "edited", "link"}
+    # a lock on either record is a wish of the one person both of them are
+    neu["private"] = list(dict.fromkeys(
+        [k for rec in (pa, pb) for k in (rec.get("private") if isinstance(rec.get("private"), list) else [])]))
+    bekannt = {k for k, _, _ in FELDER} | set(KINDS) | {"id", "children", "edited", "link", "private"}
     for key, wert in pb.items():
         if key not in bekannt and leer(neu.get(key)) and not leer(wert):
             neu[key] = copy.deepcopy(wert)

@@ -37,6 +37,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import baum as baum_lib  # noqa: E402
 import build_site  # noqa: E402
+import edits as person_lib  # noqa: E402
 import gedcom  # noqa: E402
 
 # Which person fields each tick box on the dialog stands for.  Name, sex and
@@ -685,6 +686,9 @@ def run(data: dict, order: dict, out_dir: str, centre_name: str) -> list[str]:
     """Do what the dialog asked for and hand back the file names written."""
     os.makedirs(out_dir, exist_ok=True)
     fields = order.get("felder") or {}
+    # Before anything else, and for every format: a person who asked for part of
+    # data to stay private keeps it, ticks or not - see `lock_private`.
+    data = person_lib.lock_private(data)
     formats = set(order.get("formate") or [])
     want_diagram = bool(order.get("diagramm"))
     want_book = bool(order.get("buch"))

@@ -244,7 +244,9 @@ def main() -> None:
 
     # The page does not need the raw source blobs of the report; they are long,
     # repetitive and already summarised in the per person fields.
-    slim = json.loads(json.dumps(data))
+    # What people asked to keep private stays out - `--alles` does not overrule
+    # that, it is their wish, not a setting.
+    slim = overlay_lib.lock_private(data)
     # Which tree this page IS.  A linked person lists every tree that carries
     # her, this one included, and without knowing its own name the page would
     # offer a note pointing at itself.  In the program the same answer comes

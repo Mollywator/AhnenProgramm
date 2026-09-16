@@ -53,7 +53,7 @@ true for ever and is what makes an old backup readable at all.
 from __future__ import annotations
 
 # The shape this program writes.  Raised by one whenever the shape changes.
-FORMAT = 4
+FORMAT = 5
 
 # The oldest shape that can still be brought forward.  Everything below this is
 # refused rather than mangled - see the note about dropping conversions above.
@@ -156,6 +156,19 @@ def _von_3_auf_4(tree: dict) -> None:
     person_lib.normalise_links(tree.get("people") or [])
 
 
+def _von_4_auf_5(tree: dict) -> None:
+    """Give every person the list of sections kept private, empty.
+
+    Nobody has asked for anything yet, so nothing is locked.  The field gets a
+    version of its own because an older program would drop it, and the flag on
+    single entries, on the first save - and a lock that disappears unnoticed is
+    worse than none.
+    """
+    for person in tree.get("people") or []:
+        if not isinstance(person.get("private"), list):
+            person["private"] = []
+
+
 SCHRITTE: list[dict] = [
     {"von": 1, "was": "Jede Person bekommt das Feld für die Verknüpfung in "
                       "einen anderen Stammbaum (leer)",
@@ -167,6 +180,8 @@ SCHRITTE: list[dict] = [
                       "vorhandene Stationen wie Heirat oder Scheidung werden dem "
                       "passenden Paar zugeordnet",
      "tun": _von_3_auf_4},
+    {"von": 4, "was": "Jede Person bekommt die Sperren für private Angaben (alle offen)",
+     "tun": _von_4_auf_5},
 ]
 
 

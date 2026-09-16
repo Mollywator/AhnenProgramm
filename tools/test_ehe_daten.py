@@ -153,8 +153,8 @@ class TestUmwandlung(unittest.TestCase):
             {"id": 2, "name": "Ilka Dornbusch", "spouses": [1], "spouse_kind": {"1": "marriage"},
              "parent_kind": {}, "events": []}]}
         getan = schema.umwandeln(tree)
-        self.assertEqual(schema.version(tree), 4)
-        self.assertEqual(len(getan), 1)
+        self.assertEqual(schema.version(tree), schema.FORMAT)
+        self.assertEqual(len(getan), schema.FORMAT - 3)
         self.assertEqual(tree["people"][0]["spouse_info"]["2"]["since"]["year"], 1999)
         self.assertEqual(tree["people"][1]["spouse_info"]["1"]["since"]["year"], 1999)
 

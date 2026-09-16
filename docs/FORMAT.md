@@ -338,3 +338,63 @@ either.
 An older program would drop `spouse_info` and every `tie` on the first save,
 and read `engaged` as unsaid — a marriage. Refusing to open is the only answer
 that cannot lose anything.
+
+---
+
+## Version 5
+
+Since 16.09.2026.  One new field on a person, and one new flag on the entries
+of three of its lists.
+
+Somebody who sends in their papers may ask for part of them not to be passed
+on — an illness in the life story, a doctor's letter, an address. Until now the
+only answer was not to enter it.
+
+### `private`, on a person
+
+A list of the sections of this person that stay out of every export. `[]`
+where nothing is locked. Known values, each with the fields it empties:
+
+| Value | Fields |
+|---|---|
+| `leben` | `occupation`, `religion` |
+| `wohnorte` | `residences` |
+| `lebenslauf` | `events` |
+| `unterlagen` | `documents` |
+| `kontakt` | `contact` |
+| `notizen` | `freetext`, `notes`, `extra`, `note_text` |
+| `portrait` | `photo` |
+| `kontakt_telefon` | `phone` inside `contact` |
+| `kontakt_mobil` | `mobile` inside `contact` |
+| `kontakt_email` | `email` inside `contact` |
+| `kontakt_anschrift` | `address` inside `contact` |
+
+A `contact` left with nothing in it goes out as `null`. An unknown value is
+ignored. Name, birth, death (date and place) and the family
+have no value on purpose: they are what makes somebody a place in the tree.
+
+### `private`, on an entry of `events`, `documents` or `residences`
+
+`true` keeps that one entry out of every export. Absent means not locked;
+`false` is never written.
+
+### What an export does with it
+
+Before anything is written — page, book, picture, `.baum`, GEDCOM — the locked
+fields are emptied and the locked entries removed. The tick boxes of the export
+dialog do not overrule this, and neither does `build_site.py --alles`. The
+`private` list itself stays in the exported data, so that a tree handed on
+keeps the locks in the next program.
+
+A linked person carries `private` into every tree (it belongs to the person),
+and two records merged into one keep every section either of them had locked.
+
+### The conversion out of version 4
+
+Every person gets `private: []`. Nothing is locked.
+
+### Why the version number went up
+
+An older program would drop the list and the flags on the first save, and the
+next export would hand out exactly what somebody asked to keep back. Refusing
+to open is the only answer that cannot lose anything.

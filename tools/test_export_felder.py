@@ -52,14 +52,15 @@ class TestVorauswahl(unittest.TestCase):
         an = re.findall(r'\["(\w+)",[^\]]*,\s*true\]', block.group(1))
         self.assertEqual(an, ["lebensdaten", "orte", "familie"])
 
-    def test_kontaktteile_sind_vorab_aus(self):
+    def test_von_den_kontaktteilen_nur_email_vorab(self):
         with open(VORLAGE, encoding="utf-8") as fh:
             s = fh.read()
         block = re.search(r"const EXPORT_CONTACT = \[(.*?)\];", s, re.S)
         self.assertIsNotNone(block, "die Kontakt-Unterauswahl fehlt")
         self.assertEqual(re.findall(r'\["(\w+)"', block.group(1)),
                          list(export.CONTACT_PARTS))
-        self.assertIn('id="kontakt_${teil}"${on ? "" : " disabled"}', s,
+        self.assertEqual(re.findall(r'\["(\w+)",[^\]]*,\s*true\]', block.group(1)), ["email"])
+        self.assertIn('id="kontakt_${teil}"${vorab ? " checked" : ""}${on ? "" : " disabled"}', s,
                       "die Kontaktzeilen sind nicht mehr ausgegraut, solange der Hauptschalter aus ist")
 
 

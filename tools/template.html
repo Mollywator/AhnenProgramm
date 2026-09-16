@@ -747,6 +747,31 @@ html[data-edit] .editonly.flex{display:flex !important}
 .birthrow > .field.check{padding-bottom:9px}
 .birthrow > .field:last-child{flex:1 1 220px}
 .deathtoggle{margin-top:14px;font-size:12px}
+/* a heading with one small control at its right end */
+.sec h3.withctl{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.privatebtn{font-size:11px;letter-spacing:.04em;text-transform:none;padding:3px 10px}
+.privatebtn[aria-pressed="true"]{background:var(--accent);color:var(--paper);border-color:var(--accent)}
+.privatenote{margin:0 0 10px;font-size:13px;color:var(--accent)}
+/* the lock on one entry, beside its x */
+.card .itemlock{
+  position:absolute;top:6px;right:34px;border:0;background:none;color:var(--ink-3);
+  font-size:13px;line-height:1;cursor:pointer;padding:4px 6px;border-radius:2px;opacity:.55;
+}
+.card .itemlock:hover{opacity:1;background:var(--paper-2)}
+.card .itemlock[aria-pressed="true"],.docrow .itemlock[aria-pressed="true"]{opacity:1;color:var(--accent)}
+.card.locked,.docrow.locked{border-color:var(--accent)}
+.docrow.withlock{grid-template-columns:28px minmax(0,1fr) auto auto}
+.docrow .itemlock{border:0;background:none;cursor:pointer;font-size:13px;opacity:.55;padding:4px 6px}
+.docrow .itemlock:hover{opacity:1}
+.shotbtn[aria-pressed="true"]{color:var(--accent)}
+.lockfield{position:relative;min-width:0}
+.lockfield .fieldlock{
+  position:absolute;top:-4px;right:0;border:0;background:none;cursor:pointer;
+  font-size:12px;line-height:1;padding:3px 5px;border-radius:2px;opacity:.55;
+}
+.lockfield .fieldlock:hover{opacity:1;background:var(--paper-2)}
+.lockfield .fieldlock[aria-pressed="true"]{opacity:1}
+.privmark{color:var(--accent);letter-spacing:.08em}
 .deathtoggle::after{content:" ▾"}
 .deathtoggle[aria-expanded="true"]::after{content:" ▴"}
 .deathtoggle[aria-expanded="true"]{border-color:var(--ink-3)}
@@ -2672,6 +2697,11 @@ function sheetHTML(p){
     `<button class="plink" data-open="${q.id}">${esc(q.name)}<small>${esc(lifespan(q) || "")}</small></button>`).join("") ;
 
   const sections = [];
+  // Only in the program: a copy handed out has had all of this cut out already,
+  // and a lock sign there would only say that something is being kept back.
+  const lockSign = `<span class="privmark" title="geht in keinen Export mit">🔒</span>`;
+  const priv = (...keys) => IS_EDIT && keys.some(k => isPrivate(p, k)) ? " " + lockSign : "";
+  const privItem = entry => IS_EDIT && entry && entry.private ? lockSign + " " : "";
 
   if(centrePerson && p.id !== centre && rel){
     sections.push(`<div class="sec">
@@ -2697,7 +2727,7 @@ function sheetHTML(p){
   if(p.relation) facts.push(["Im Bericht geführt als", p.relation]);
   if(p.tree) facts.push(["Stammbaum im Bericht", "Nr. " + p.tree]);
   facts.push([p.id >= 1001 ? "Nummer (selbst angelegt)" : "Nummer im Bericht", "#" + p.id]);
-  if(facts.some(f => f[1])) sections.push(`<div class="sec"><h3>Eckdaten</h3>
+  if(facts.some(f => f[1])) sections.push(`<div class="sec"><h3>Eckdaten${priv("leben")}</h3>
     <dl class="kv">${facts.filter(f => f[1]).map(f =>
       `<div class="fact"><dt>${esc(f[0])}</dt><dd>${esc(f[1])}</dd></div>`).join("")}</dl></div>`);
 
@@ -2712,10 +2742,10 @@ function sheetHTML(p){
     }).join("")}</div></div>`);
   if(p.children.length) sections.push(`<div class="sec"><h3>Kinder</h3><div class="people-links">${linkList(p.children)}</div></div>`);
 
-  if(p.residences && p.residences.length) sections.push(`<div class="sec"><h3>Wohnorte</h3>
+  if(p.residences && p.residences.length) sections.push(`<div class="sec"><h3>Wohnorte${priv("wohnorte")}</h3>
     <ul class="timeline">${p.residences.map(r => `<li>
       <span class="yr">${esc([r.from, r.to].filter(Boolean).join("–") || "—")}</span>
-      <span class="what">${esc(r.place || "")}</span>
+      <span class="what">${privItem(r)}${esc(r.place || "")}</span>
       <span class="where">${esc([r.address, r.note].filter(Boolean).join(" · "))}</span>
     </li>`).join("")}</ul></div>`);
 
@@ -2728,31 +2758,31 @@ function sheetHTML(p){
     // hand added stations land at the end of the list, so the reading view
     // sorts a copy rather than showing 1964 after 2019
     const story = p.events.slice().sort((a, b) => (a.year || 9999) - (b.year || 9999));
-    sections.push(`<div class="sec"><h3>Lebenslauf</h3>
+    sections.push(`<div class="sec"><h3>Lebenslauf${priv("lebenslauf")}</h3>
     <ul class="timeline">${story.map(e => `<li>
       <span class="yr">${e.year ? (e.approx ? "um " : "") + e.year : "—"}</span>
-      <span class="what">${esc(e.kind)}</span>
+      <span class="what">${privItem(e)}${esc(e.kind)}</span>
       <span class="where">${esc([dateText({day: e.day, month: e.month}), e.place].filter(Boolean).join(" · ") ||
         (e.with && e.with.length ? "mit " + e.with.map(i => (BY_ID.get(i) || {}).name).filter(Boolean).join(", ") : ""))}${
         e.text ? `<span style="display:block;color:var(--ink-3);font-size:14.5px;margin-top:2px">${esc(e.text)}</span>` : ""}</span>
     </li>`).join("")}</ul></div>`);
   }
 
-  if(p.notes && p.notes.length) sections.push(`<div class="sec"><h3>Notizen</h3>
+  if(p.notes && p.notes.length) sections.push(`<div class="sec"><h3>Notizen${priv("notizen")}</h3>
     ${p.notes.map(n => `<p class="note">${esc(n)}</p>`).join("")}</div>`);
 
   if(p.extra) sections.push(`<div class="sec"><h3>Weitere Angaben</h3><p class="prose">${esc(p.extra)}</p></div>`);
 
-  if(p.freetext) sections.push(`<div class="sec"><h3>Eigene Notizen</h3>
+  if(p.freetext) sections.push(`<div class="sec"><h3>Eigene Notizen${priv("notizen")}</h3>
     <p class="prose" style="white-space:pre-wrap">${esc(p.freetext)}</p></div>`);
 
   // The scans themselves only exist while the edit program is running.  In the
   // file handed to the family the whole field is stripped out beforehand, so
   // this never gives anyone a list of dead links.
-  if(p.documents && p.documents.length) sections.push(`<div class="sec"><h3>Unterlagen</h3>
+  if(p.documents && p.documents.length) sections.push(`<div class="sec"><h3>Unterlagen${priv("unterlagen")}</h3>
     <div class="stack">${p.documents.map(d => `<div class="docrow">
       <span class="kind">▤</span>
-      <span>${EDIT ? `<a href="/datei/${p.id}/${encodeURIComponent(d.file)}" target="_blank" rel="noopener">${esc(d.title || d.file)}</a>`
+      <span>${privItem(d)}${EDIT ? `<a href="/datei/${p.id}/${encodeURIComponent(d.file)}" target="_blank" rel="noopener">${esc(d.title || d.file)}</a>`
                    : esc(d.title || d.file)}<small>${esc(d.file)}</small></span>
       <span></span></div>`).join("")}</div></div>`);
 
@@ -2762,10 +2792,10 @@ function sheetHTML(p){
       mailAddresses(bit).length
         ? `<a class="maillink" href="mailto:${esc(encodeURIComponent(bit).replace(/%40/g, "@"))}">${esc(bit)}</a>`
         : esc(bit)).join("");
-    const rows = [["Telefon", p.contact.phone], ["Mobil", p.contact.mobile],
-                  ["E-Mail", p.contact.email], ["Anschrift", p.contact.address]];
-    sections.push(`<div class="sec"><h3>Kontakt</h3><dl class="kv">${rows.filter(r => r[1]).map(r =>
-      `<div class="fact"><dt>${esc(r[0])}</dt><dd>${r[0] === "E-Mail" ? mailLinks(r[1]) : esc(r[1])}</dd></div>`).join("")}</dl></div>`);
+    const rows = [["Telefon", p.contact.phone, "telefon"], ["Mobil", p.contact.mobile, "mobil"],
+                  ["E-Mail", p.contact.email, "email"], ["Anschrift", p.contact.address, "anschrift"]];
+    sections.push(`<div class="sec"><h3>Kontakt${priv("kontakt")}</h3><dl class="kv">${rows.filter(r => r[1]).map(r =>
+      `<div class="fact"><dt>${esc(r[0])}${priv("kontakt_" + r[2])}</dt><dd>${r[0] === "E-Mail" ? mailLinks(r[1]) : esc(r[1])}</dd></div>`).join("")}</dl></div>`);
   }
 
   if(p.sources && p.sources.length) sections.push(`<div class="sec"><h3>Quellen</h3>
@@ -3000,7 +3030,7 @@ const EDIT = window.STAMMBAUM_EDIT || null;
 const EXTRA_BLANK = () => ({
   call_name: null, birth_name: null, title: null, religion: null,
   burial: null, residences: [], contact: null, freetext: null,
-  documents: [], edited: null,
+  documents: [], edited: null, private: [],
 });
 
 function blankPerson(id){
@@ -4157,7 +4187,8 @@ function linkSection(role, title, ids, hint){
 /* ---- repeatable blocks --------------------------------------------------- */
 function residenceCards(){
   const list = draft.residences || [];
-  return list.map((r, i) => `<div class="card">
+  return list.map((r, i) => `<div class="card${r.private ? " locked" : ""}">
+    ${itemLockHTML("residences", i, r)}
     <button type="button" class="drop" data-drop="residences:${i}" aria-label="Wohnort löschen">×</button>
     <div class="fields two">
       ${textField("Ort", "residences." + i + ".place")}
@@ -4182,7 +4213,8 @@ function eventCards(){
           + " – geht mit, solange hier nichts von Hand geändert wird."
         : "Gehört zu „Ehe und Partnerschaft“ mit " + esc(personLabel(+tie.with)) + "."}</p>` : "";
     const open = String(e.text || "").trim() || openEventNotes.has(i);
-    return `<div class="card">
+    return `<div class="card${e.private ? " locked" : ""}">
+    ${itemLockHTML("events", i, e)}
     <button type="button" class="drop" data-drop="events:${i}" aria-label="Station löschen">×</button>
     <div class="fields two">
       ${textField("Was", "events." + i + ".kind", {list: "eventkinds", placeholder: "Taufe, Schule, Umzug …"})}
@@ -4210,10 +4242,11 @@ const DOC_ICON = name => {
 function docRows(){
   const list = draft.documents || [];
   if(!list.length) return `<p class="hintline">Noch nichts hinterlegt.</p>`;
-  return `<div class="stack">${list.map((d, i) => `<div class="docrow">
+  return `<div class="stack">${list.map((d, i) => `<div class="docrow withlock${d.private ? " locked" : ""}">
     <span class="kind">${DOC_ICON(d.file || "")}</span>
     <span><a href="/datei/${draft.id}/${encodeURIComponent(d.file)}" target="_blank" rel="noopener">${esc(d.title || d.file)}</a>
       <small>${esc(d.file)}${d.added ? " · abgelegt " + esc(d.added) : ""}</small></span>
+    ${itemLockHTML("documents", i, d)}
     <button type="button" class="btn" data-dropdoc="${i}">Entfernen</button>
   </div>`).join("")}</div>`;
 }
@@ -4664,13 +4697,15 @@ function formHTML(){
         <p class="hintline">Leer lassen, solange die Person lebt – der Baum zeichnet sie dann als lebend.</p>
       </div>
 
-      <div class="sec"><h3>Leben</h3>
+      <div class="sec"><h3 class="withctl"><span>Leben</span>${privateButtonHTML("leben")}</h3>
+        ${privateNoteHTML("leben")}
         <div class="fields two">
           ${textField("Beruf", "occupation")}
         </div>
       </div>
 
-      <div class="sec"><h3>Wohnorte</h3>
+      <div class="sec"><h3 class="withctl"><span>Wohnorte</span>${privateButtonHTML("wohnorte")}</h3>
+        ${privateNoteHTML("wohnorte")}
         <div class="stack" id="residenceStack">${residenceCards()}</div>
         <button type="button" class="btn addbtn" data-add="residences" style="margin-top:10px">＋ Wohnort</button>
       </div>
@@ -4699,33 +4734,37 @@ function formHTML(){
         + "Eltern. Sind keine Eltern bekannt, hält ein Elternteil „?“ die beiden zusammen.")}
       </div>
 
-      <div class="sec"><h3>Lebenslauf</h3>
+      <div class="sec"><h3 class="withctl"><span>Lebenslauf</span>${privateButtonHTML("lebenslauf")}</h3>
+        ${privateNoteHTML("lebenslauf")}
         <div class="stack" id="eventStack">${eventCards()}</div>
         <button type="button" class="btn addbtn" data-add="events" style="margin-top:10px">＋ Station</button>
         <p class="hintline">So viele Stationen wie gewünscht – vom Taufeintrag bis zum letzten Umzug.</p>
       </div>
 
-      <div class="sec"><h3>Unterlagen</h3>
+      <div class="sec"><h3 class="withctl"><span>Unterlagen</span>${privateButtonHTML("unterlagen")}</h3>
+        ${privateNoteHTML("unterlagen")}
         <div id="docStack">${docRows()}</div>
         <button type="button" class="btn addbtn" data-upload="dokument" style="margin-top:10px">＋ Datei anhängen</button>
         <p class="hintline">Urkunden, Kirchenbuchauszüge, Briefe. Liegen unter data/dokumente/${draft.id}/ und
           gehen nur mit, wenn beim Bauen ausdrücklich danach gefragt wird.</p>
       </div>
 
-      <div class="sec"><h3>Kontakt</h3>
+      <div class="sec"><h3 class="withctl"><span>Kontakt</span>${privateButtonHTML("kontakt")}</h3>
+        ${privateNoteHTML("kontakt")}
         <div class="fields two">
-          ${textField("Telefon", "contact.phone")}
-          ${textField("Mobil", "contact.mobile")}
+          ${contactFieldHTML("Telefon", "phone", "telefon")}
+          ${contactFieldHTML("Mobil", "mobile", "mobil")}
         </div>
         <div class="fields two" style="margin-top:12px">
-          ${textField("E-Mail", "contact.email", {type: "email"})}
-          ${textField("Anschrift", "contact.address")}
+          ${contactFieldHTML("E-Mail", "email", "email", {type: "email"})}
+          ${contactFieldHTML("Anschrift", "address", "anschrift")}
         </div>
         <p class="hintline">Nur für Lebende sinnvoll – und beim Bauen standardmäßig ausgelassen,
           damit keine Telefonnummer durch die Familie wandert.</p>
       </div>
 
-      <div class="sec"><h3>Notizen und Freitext</h3>
+      <div class="sec"><h3 class="withctl"><span>Notizen und Freitext</span>${privateButtonHTML("notizen")}</h3>
+        ${privateNoteHTML("notizen")}
         ${areaField("", "freetext", {tall: true,
           placeholder: "Alles, wofür es kein Feld gibt: Erzählungen, Widersprüche in den Quellen, offene Fragen …"})}
       </div>
@@ -4742,6 +4781,54 @@ function formHTML(){
       ${isNew ? "" : `<button class="btn" id="dropPerson">Person entfernen</button>`}
     </div>
   </div></div>`;
+}
+
+/* The locks a person asks for: "please do not pass this on".  One per section
+   of the form, and one per entry where a section is a list - a single station
+   of the life story, a single scan, a single address.  What is locked stays in
+   the program and is cut out of every export, whatever is ticked there; the
+   rules live in `lock_private` in edits.py.  Name, birth, death and the family
+   have no lock: they are what makes somebody a place in the tree. */
+const PRIVATE_TEXT = {
+  leben: "Beruf und Konfession", wohnorte: "Die Wohnorte",
+  lebenslauf: "Der ganze Lebenslauf", unterlagen: "Alle Unterlagen", kontakt: "Die Kontaktdaten",
+  notizen: "Notizen und Freitext", portrait: "Das Portrait",
+  kontakt_telefon: "Die Telefonnummer", kontakt_mobil: "Die Mobilnummer",
+  kontakt_email: "Die E-Mail-Adresse", kontakt_anschrift: "Die Anschrift",
+};
+
+function isPrivate(p, section){
+  return Array.isArray(p && p.private) && p.private.includes(section);
+}
+
+function privateButtonHTML(section){
+  const on = isPrivate(draft, section);
+  return `<button type="button" class="btn privatebtn" data-private="${section}" aria-pressed="${on}"
+    title="${esc(PRIVATE_TEXT[section])} geht in keinen Export mit">${on ? "🔒 Privat" : "Privat machen"}</button>`;
+}
+
+function privateNoteHTML(section){
+  return `<p class="privatenote" data-privatenote="${section}"${isPrivate(draft, section) ? "" : " hidden"}>${
+    esc(PRIVATE_TEXT[section])} bleibt hier und geht in keinen Export mit – auch wenn dort alles angehakt ist.</p>`;
+}
+
+/* One line of the contact details with its own lock at the right of the
+   label.  The lock sits outside the <label>: a button inside it would be what
+   the label points at, and a click on the word "Telefon" would flip it. */
+function contactFieldHTML(label, key, part, opts){
+  const section = "kontakt_" + part;
+  const on = isPrivate(draft, section);
+  return `<div class="lockfield">${textField(label, "contact." + key, opts)}
+    <button type="button" class="fieldlock" data-private="${section}" data-icon="1" aria-pressed="${on}"
+      title="${on ? esc(PRIVATE_TEXT[section]) + " ist privat – geht in keinen Export mit" : "Nur " + esc(label) + " privat machen"}"
+      aria-label="${esc(label)} privat">${on ? "🔒" : "🔓"}</button></div>`;
+}
+
+function itemLockHTML(list, i, entry){
+  const on = !!(entry && entry.private);
+  return `<button type="button" class="itemlock" data-itemlock="${list}:${i}" aria-pressed="${on}"
+    title="${on ? "Privat – geht in keinen Export mit. Klicken gibt frei." : "Nur diesen Eintrag privat machen"}"
+    aria-label="${on ? "Eintrag freigeben" : "Eintrag privat machen"}">${on ? "🔒" : "🔓"}</button>`;
 }
 
 /* The display name follows the fields above it while it is still the program's
@@ -4780,6 +4867,9 @@ function portraitHeadHTML(p){
           <button type="button" class="shotbtn" data-upload="foto" title="${hint}" aria-label="Bild wählen">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>
           </button>
+          <button type="button" class="shotbtn" data-private="portrait" aria-pressed="${isPrivate(p, "portrait")}"
+            title="${isPrivate(p, "portrait") ? "Portrait ist privat – geht in keinen Export mit" : "Portrait privat machen"}"
+            aria-label="Portrait privat">${isPrivate(p, "portrait") ? "🔒" : "🔓"}</button>
           <button type="button" class="shotbtn" data-clearphoto="1"${has ? "" : " disabled"}
             title="${has ? "Bild entfernen" : "Kein Bild zum Entfernen"}" aria-label="Bild entfernen">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>
@@ -5821,7 +5911,8 @@ document.getElementById("helpBtn").addEventListener("click", () => {
           <ul>
             <li><span>Mit oder ohne Mittelpunkt</span><span>Ganz oben im Dialog. <b>Ohne</b> gibt dieselben Personen aus, aber niemand ist hervorgehoben und keiner heißt „Onkel“ oder „Cousine“ – gedacht für einen Stammbaum, der an die ganze Familie geht. Ist in der Ansicht niemand Mittelpunkt, steht die Wahl fest auf <b>Ohne</b>.</span></li>
             <li><span>Häkchen bei den Angaben</span><span>Was nicht angehakt ist, wird aus den Daten <b>herausgeschnitten</b> – nicht nur ausgeblendet. Vorab angehakt sind nur Geburt und Tod, die Orte und die Familie; Beruf, Lebenslauf, Portraits, Notizen und alles Weitere kommen nur mit, wenn man sie selbst anhakt.</span></li>
-            <li><span>Kontaktdaten</span><span>Wer <b>Kontaktdaten Lebender</b> anhakt, wählt darunter einzeln aus: Telefon, Mobil, E-Mail, Anschrift. Nur was dort angehakt ist, geht mit – zum Beispiel nur die E-Mail.</span></li>
+            <li><span>Kontaktdaten</span><span>Wer <b>Kontaktdaten Lebender</b> anhakt, wählt darunter einzeln aus: Telefon, Mobil, E-Mail, Anschrift. Die E-Mail ist schon angehakt, alles andere geht nur mit, wenn du es dazunimmst.</span></li>
+            <li><span>Privat</span><span>Im Steckbrief steht neben jedem Abschnitt – Leben, Wohnorte, Lebenslauf, Unterlagen, Kontakt, Notizen – <b>Privat machen</b>, und am Portrait ein Schloss. Einzelne Stationen, Wohnorte, Dateien und jede Kontaktzeile – Telefon, Mobil, E-Mail, Anschrift – haben ihr eigenes 🔓. Was gesperrt ist, geht in keinen Export mit, egal was angehakt ist. Name, Geburt, Tod und Familie bleiben immer drin.</span></li>
             <li><span>PDF</span><span>Erst das Diagramm auf einer einzigen Seite, so breit wie es sein muss, dann das Personenbuch auf A4. Wahlweise in einer Datei oder in zweien.</span></li>
             <li><span>SVG</span><span>Das Diagramm als Zeichnung ohne Größengrenze. Bleibt beim Hineinzoomen scharf, öffnet sich auch auf dem Handy im Browser, und der Copyshop kann daraus ein Poster machen.</span></li>
             <li><span>PNG</span><span>Nur für die kleineren Ansichten. Browser hören bei 16 384 Pixeln auf – <b>Ganze Linie</b> und <b>Alle</b> sind breiter, dort ist der Haken gesperrt und sagt auch, warum.</span></li>
@@ -6594,13 +6685,14 @@ const EXPORT_FIELDS = [
   ["kontakt", "Kontaktdaten Lebender", false],
 ];
 
-/* Opens under "Kontaktdaten Lebender" once that is ticked.  None is ticked in
-   advance: whoever lets contact details out names each line of them. */
+/* Opens under "Kontaktdaten Lebender" once that is ticked.  Only the e-mail
+   address is ticked in advance - it is what the family writes to; telephone,
+   mobile and address go out only when somebody adds them. */
 const EXPORT_CONTACT = [
-  ["telefon", "Telefon"],
-  ["mobil", "Mobil"],
-  ["email", "E-Mail"],
-  ["anschrift", "Anschrift"],
+  ["telefon", "Telefon", false],
+  ["mobil", "Mobil", false],
+  ["email", "E-Mail", true],
+  ["anschrift", "Anschrift", false],
 ];
 
 /* ---- reading the light palette ------------------------------------------ */
@@ -6906,15 +6998,16 @@ function exportHTML(){
       <div class="sec"><h3>Welche Angaben dürfen mit?</h3>
         <p class="hintline" style="margin:0 0 10px">Gilt für das Buch und für die HTML-Seite.
           Vorab sind nur Lebensdaten, Orte und Familie angehakt – die Datei wird weitergereicht.
-          Alles Weitere kommt nur mit, wenn du es selbst anhakst.</p>
+          Alles Weitere kommt nur mit, wenn du es selbst anhakst.
+          Was im Steckbrief auf <b>Privat</b> steht, bleibt immer hier – egal, was unten angehakt ist.</p>
         <div class="fields two">
           ${EXPORT_FIELDS.map(([key, label, on]) => key !== "kontakt" ? box("feld_" + key, label, on)
             // the contact lines hang under their box as a list, greyed out
             // until "Kontaktdaten Lebender" itself is ticked
             : `<div style="grid-column:1/-1">${box("feld_" + key, label, on)}
                 <div id="kontaktTeile" style="display:flex;flex-direction:column;gap:6px;margin:6px 0 0 24px">
-                  ${EXPORT_CONTACT.map(([teil, name]) => `<label class="field check${on ? "" : " off"}">
-                    <input type="checkbox" id="kontakt_${teil}"${on ? "" : " disabled"}>
+                  ${EXPORT_CONTACT.map(([teil, name, vorab]) => `<label class="field check${on ? "" : " off"}">
+                    <input type="checkbox" id="kontakt_${teil}"${vorab ? " checked" : ""}${on ? "" : " disabled"}>
                     <span>${esc(name)}</span></label>`).join("")}
                 </div></div>`).join("")}
         </div>
@@ -7734,7 +7827,8 @@ async function runExport(){
     let svg = null, png = null;
     if(wantDiagram && (formats.includes("svg") || formats.includes("png") || formats.includes("pdf"))){
       if(info) info.textContent = "Holt die Portraits …";
-      const bilder = await photosAsData(stageSet());
+      // a portrait somebody asked to keep private stays home
+      const bilder = await photosAsData([...stageSet()].filter(id => !isPrivate(BY_ID.get(id), "portrait")));
       if(info) info.textContent = "Zeichnet das Diagramm …";
       svg = diagramSVG(bilder, !withCentre);
       const size = pngPossible();
@@ -8396,6 +8490,45 @@ if(EDIT){
     }
     /* Shown and hidden in place rather than redrawn: a redraw would take the
        focus off the button, and there is nothing in the block to recompute. */
+    /* Flipped in place, like the death block: a redraw would take the focus
+       off the button. */
+    const privateToggle = e.target.closest("[data-private]");
+    if(privateToggle && draft){
+      const section = privateToggle.dataset.private;
+      const on = !isPrivate(draft, section);
+      const locks = Array.isArray(draft.private) ? draft.private.filter(k => k !== section) : [];
+      if(on) locks.push(section);
+      draft.private = locks;
+      privateToggle.setAttribute("aria-pressed", String(on));
+      if(section === "portrait"){
+        privateToggle.textContent = on ? "🔒" : "🔓";
+        privateToggle.title = on ? "Portrait ist privat – geht in keinen Export mit" : "Portrait privat machen";
+      } else if(privateToggle.dataset.icon){
+        privateToggle.textContent = on ? "🔒" : "🔓";
+        privateToggle.title = on ? PRIVATE_TEXT[section] + " ist privat – geht in keinen Export mit"
+                                 : "Nur diese Zeile privat machen";
+      } else {
+        privateToggle.textContent = on ? "🔒 Privat" : "Privat machen";
+      }
+      const note = document.querySelector(`[data-privatenote="${section}"]`);
+      if(note) note.hidden = !on;
+      markDirty(true);
+      return;
+    }
+    const itemLock = e.target.closest("[data-itemlock]");
+    if(itemLock && draft){
+      const [list, i] = itemLock.dataset.itemlock.split(":");
+      const entry = (draft[list] || [])[+i];
+      if(!entry) return;
+      if(entry.private) delete entry.private; else entry.private = true;
+      itemLock.setAttribute("aria-pressed", String(!!entry.private));
+      itemLock.textContent = entry.private ? "🔒" : "🔓";
+      itemLock.title = entry.private ? "Privat – geht in keinen Export mit. Klicken gibt frei." : "Nur diesen Eintrag privat machen";
+      const row = itemLock.closest(".card, .docrow");
+      if(row) row.classList.toggle("locked", !!entry.private);
+      markDirty(true);
+      return;
+    }
     const deathToggle = e.target.closest("[data-deathtoggle]");
     if(deathToggle){
       deathOpen = !deathOpen;

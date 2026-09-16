@@ -770,7 +770,16 @@ both showing the same people, the ones on the stage right now.
 **Fields:** ten groups.  Contact details, scanned documents and the report's
 own prose start unticked.  What is not ticked is **cut out of the data** before
 anything is written, not hidden with CSS: the exported page's `DATA` object
-does not contain it.
+does not contain it.  Of the contact lines only the e-mail address starts
+ticked, and only once the contact box itself is.
+
+**Private:** what a person asked to keep to themselves is locked in the edit
+form - a whole section (life, residences, life story, documents, contact,
+notes, portrait), a single contact line, or a single station, scan or address.
+`lock_private()` in `edits.py` cuts it out before any other step, for every
+format, and the tick boxes cannot overrule it: they decide what the family
+sees of everybody, a lock is one person's own wish.  Name, birth, death and
+the family have no lock.  The shape is in `docs/FORMAT.md`, version 5.
 
 Everything lands in `Export/`, named after the tree, the view, the centre (if
 it is shown) and the date.

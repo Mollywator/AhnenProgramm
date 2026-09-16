@@ -59,6 +59,7 @@ EXTRA_FIELDS = (
     "documents",    # [{file, title, kind, added}] - scans in data/dokumente/<id>
     "edited",       # ISO timestamp of the last save
     "link",         # the same person in another tree - see verknuepfung.py
+    "private",      # sections kept out of every export - see PRIVATE_SECTIONS
 )
 
 ALL_FIELDS = BASE_FIELDS + EXTRA_FIELDS
@@ -119,6 +120,7 @@ def blank_person(person_id: int) -> dict:
         "residences": [], "contact": None, "freetext": None,
         "documents": [], "edited": None, "link": None,
         "spouse_kind": {}, "parent_kind": {}, "spouse_info": {},
+        "private": [],
     }
 
 
@@ -126,6 +128,62 @@ def fill_missing(person: dict) -> dict:
     """Give a record from the PDF the editor's own fields, all empty."""
     out = blank_person(person.get("id", 0))
     out.update(person)
+    return out
+
+
+# What a person can ask to keep to themselves, section by section as the edit
+# form shows them.  Name, birth, death and the family are not in here: they are
+# what makes somebody a place in the tree at all.
+PRIVATE_SECTIONS = {
+    "leben": ("occupation", "religion"),
+    "wohnorte": ("residences",),
+    "lebenslauf": ("events",),
+    "unterlagen": ("documents",),
+    "kontakt": ("contact",),
+    "notizen": ("freetext", "notes", "extra", "note_text"),
+    "portrait": ("photo",),
+}
+# Lists whose single entries can be held back one by one, with `"private": true`
+# on the entry: one station of a life story, one scan, one address.
+PRIVATE_ITEMS = ("events", "documents", "residences")
+# One line of the contact details, so the telephone number can stay home while
+# the e-mail address goes.  Named like the export dialog's contact lines.
+PRIVATE_CONTACT = {"kontakt_telefon": "phone", "kontakt_mobil": "mobile",
+                   "kontakt_email": "email", "kontakt_anschrift": "address"}
+
+
+def private_sections(person: dict) -> list[str]:
+    """What this person has locked, known values only, in form order."""
+    raw = person.get("private")
+    wanted = set(raw) if isinstance(raw, list) else set()
+    return [k for k in (*PRIVATE_SECTIONS, *PRIVATE_CONTACT) if k in wanted]
+
+
+def lock_private(data: dict) -> dict:
+    """The tree as it may leave the house: what people asked to keep, cut out.
+
+    Runs before every export and before the family page is built, whatever the
+    export dialog has ticked - the tick boxes decide what the family sees of
+    everybody, a lock is one person's own wish and is not overruled by them.
+    The data is cut, not hidden: a locked entry is simply gone.  The list of
+    locked sections stays in, so that a tree handed on keeps honouring them in
+    the next program as well.
+    """
+    out = json.loads(json.dumps(data))
+    for person in out.get("people") or []:
+        locked = private_sections(person)
+        blank = blank_person(person["id"])
+        for section in locked:
+            for key in PRIVATE_SECTIONS.get(section, ()):
+                person[key] = json.loads(json.dumps(blank[key]))
+        if isinstance(person.get("contact"), dict):
+            kept = {k: v for k, v in person["contact"].items()
+                    if k not in {PRIVATE_CONTACT[x] for x in locked if x in PRIVATE_CONTACT}}
+            person["contact"] = kept if any(kept.values()) else None
+        for key in PRIVATE_ITEMS:
+            if isinstance(person.get(key), list):
+                person[key] = [e for e in person[key]
+                               if not (isinstance(e, dict) and e.get("private"))]
     return out
 
 

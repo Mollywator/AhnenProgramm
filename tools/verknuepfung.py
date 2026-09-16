@@ -64,7 +64,7 @@ GETEILT = (
     "sex", "occupation", "religion",
     "birth", "death", "burial",
     "residences", "events", "notes", "freetext", "extra",
-    "contact",
+    "contact", "private",
 )
 
 # Lists that are unioned rather than chosen between when two trees disagree.
@@ -89,7 +89,7 @@ EINZELN = ("name", "given", "surname", "call_name", "birth_name", "title",
 # folders, and `store.dateien_abgleichen()` is what carries them across.
 FELDGRUPPEN = (
     ("identitaet", "Identität", ("name", "given", "surname", "call_name",
-                                 "birth_name", "title", "sex")),
+                                 "birth_name", "title", "sex", "private")),
     ("eckdaten",   "Eckdaten",  ("birth", "death", "burial")),
     ("leben",      "Leben",     ("occupation", "religion", "residences",
                                  "events", "extra")),
@@ -421,7 +421,20 @@ def zusammenfuehren(hier: dict, dort: dict) -> tuple[dict, list[str]]:
             out[feld] = a          # this tree stands until somebody decides
             streit.append(feld)
 
+    # A lock is never a disagreement: whichever tree holds it, she asked for it.
+    out["private"] = _gesperrt(hier, dort)
+
     return out, streit
+
+
+def _gesperrt(a: dict, b: dict) -> list[str]:
+    """Every section locked on either record - a wish is never outvoted."""
+    out: list[str] = []
+    for rec in (a, b):
+        for key in rec.get("private") if isinstance(rec.get("private"), list) else []:
+            if key not in out:
+                out.append(key)
+    return out
 
 
 # --------------------------------------------------------------- the linking
