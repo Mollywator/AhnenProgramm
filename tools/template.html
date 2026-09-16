@@ -653,10 +653,16 @@ html[data-theme="abend"] .scrim{background:rgba(0,0,0,.7)}
 .askbox .yes{border-color:var(--accent);color:var(--accent);font-weight:600}
 /* merging two entries */
 .mg-wrap{overflow-x:auto}
-table.mg{border-collapse:collapse;width:100%;font-size:14.5px}
-table.mg th,table.mg td{padding:7px 8px;border-bottom:1px dotted var(--rule);vertical-align:top;text-align:left}
+/* fixed layout: both value columns are exactly as wide, so the same text wraps
+   the same way and a difference shows at a glance */
+table.mg{border-collapse:collapse;width:100%;min-width:560px;table-layout:fixed;font-size:14.5px}
+table.mg col.mg-c-label{width:22%}
+table.mg col.mg-c-val{width:30%}
+table.mg col.mg-c-res{width:18%}
+table.mg th,table.mg td{padding:7px 8px;border-bottom:1px dotted var(--rule);vertical-align:top;text-align:left;
+  overflow-wrap:anywhere}
 table.mg thead th{font:600 11.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
-table.mg tbody th{font-weight:500;color:var(--ink-2);white-space:nowrap}
+table.mg tbody th{font-weight:500;color:var(--ink-2)}
 table.mg small{display:block;color:var(--ink-3);font-size:12.5px}
 table.mg tr.mg-conflict{background:var(--accent-soft)}
 .mg-text{max-height:7.5em;overflow:auto;white-space:pre-wrap}
@@ -6223,6 +6229,16 @@ function mergeValue(f, v){
   return f.art === "text" ? `<div class="mg-text">${esc(String(v))}</div>` : esc(String(v));
 }
 
+/* The words a single value shows, spacing collapsed. Two values that read the
+   same, letter for letter, are the same - whatever the record keeps beside it. */
+function mergeWords(f, v){
+  if(emptyVal(v)) return "";
+  const text = ["birth", "death", "burial"].includes(f.feld) && typeof v === "object"
+    ? [fullEvent(v), v.note].filter(Boolean).join(" · ")
+    : typeof v === "object" ? stableJSON(v) : String(v);
+  return text.replace(/\s+/g, " ").trim();
+}
+
 function openMerge(ids){
   const [x, y] = ids.map(Number);
   if(!EDIT || !BY_ID.has(x) || !BY_ID.has(y) || x === y) return;
@@ -6243,6 +6259,11 @@ function renderMerge(){
     let result, conflict = false;
     if(f.art === "einzeln" || f.art === "text"){
       if(sameVal(va, vb)) result = `<span class="mg-same">gleich</span>`;
+      else if(!emptyVal(va) && !emptyVal(vb) && mergeWords(f, va) === mergeWords(f, vb)){
+        // same wording, stored a little differently: the kept number's copy stays
+        wahl[f.feld] = "behalten";
+        result = `<span class="mg-same">gleich</span>`;
+      }
       else if(emptyVal(vb)) result = `<span class="mg-take">von #${keep}</span>`;
       else if(emptyVal(va)) result = `<span class="mg-take">von #${drop} übernommen</span>`;
       else {
@@ -6290,6 +6311,7 @@ function renderMerge(){
         </div>
         ${block ? `<div class="askbox"><p>${esc(block)}</p></div>` : ""}
         <div class="sec"><h3>Angaben</h3><div class="mg-wrap"><table class="mg">
+          <colgroup><col class="mg-c-label"><col class="mg-c-val"><col class="mg-c-val"><col class="mg-c-res"></colgroup>
           <thead><tr><th></th><th>#${keep} bleibt</th><th>#${drop} verschwindet</th><th>Ergebnis</th></tr></thead>
           <tbody>${rows}</tbody></table></div></div>
         <div class="sec"><h3>Verwandte, die umgehängt werden</h3>
