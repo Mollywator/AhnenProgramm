@@ -825,6 +825,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         tree["meta"]["root"] = 6          # mittlere Generation: nach oben wie unten Platz
         tree["meta"]["source"] = "Erfundene Personen zum Ausprobieren."
         slug = store.create("Uebungsbaum", tree)
+        # Erst jetzt gibt es den Fotoordner; danach noch einmal speichern, damit
+        # der Baum seine Porträts auch zählt.
+        zweig.strichmaennchen(store.photo_dir(slug))
+        store.save(store.load(slug), slug)
         self.send_json({"ok": True, "offen": slug})
 
     def api_open_tree(self) -> None:

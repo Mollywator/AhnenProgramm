@@ -164,8 +164,62 @@ def uebungsbaum() -> list[dict]:
         p["spouse_kind"] = {str(x): "marriage" for x in ehe}
         p["birth"] = {"year": jahr, "day": None, "month": None,
                       "place": None, "text": str(jahr)}
+        # Zwei Bilder je Geschlecht, abwechselnd - genug, dass nebeneinander
+        # stehende Kästen verschieden aussehen.
+        gleiche = sum(1 for x in leute if x["sex"] == geschlecht)
+        p["photo"] = STRICHMAENNCHEN[geschlecht][gleiche % 2]
         leute.append(p)
     return leute
+
+
+STRICHMAENNCHEN = {"m": ["strichmann-1.jpg", "strichmann-2.jpg"],
+                   "w": ["strichfrau-1.jpg", "strichfrau-2.jpg"]}
+
+
+def strichmaennchen(ordner: str) -> None:
+    """Die vier Porträts des Übungsbaums in `ordner` zeichnen.
+
+    Zur Laufzeit gezeichnet statt als Bilddateien mitgeliefert: vier Strichmännchen
+    sind ein paar Zeilen, und ein Übungsbaum ohne Bilder zeigt nicht, wie ein
+    Kasten mit Porträt aussieht.
+    """
+    from PIL import Image, ImageDraw
+
+    os.makedirs(ordner, exist_ok=True)
+    tinte = (60, 52, 44)
+    hintergruende = [(214, 228, 240), (240, 226, 204), (238, 214, 222), (220, 236, 214)]
+    namen = STRICHMAENNCHEN["m"] + STRICHMAENNCHEN["w"]
+    for nummer, name in enumerate(namen):
+        bild = Image.new("RGB", (240, 300), hintergruende[nummer])
+        d = ImageDraw.Draw(bild)
+        frau = name.startswith("strichfrau")
+        # Kopf und Gesicht
+        d.ellipse((85, 40, 155, 110), outline=tinte, width=6)
+        d.ellipse((104, 66, 112, 74), fill=tinte)
+        d.ellipse((128, 66, 136, 74), fill=tinte)
+        d.arc((102, 72, 138, 98), 20, 160, fill=tinte, width=4)
+        if frau:
+            # lange Haare und ein Kleid als Dreieck
+            d.line((88, 70, 72, 140), fill=tinte, width=6)
+            d.line((152, 70, 168, 140), fill=tinte, width=6)
+            d.polygon([(120, 110), (70, 240), (170, 240)], outline=tinte, width=6)
+            d.line((105, 240, 100, 285), fill=tinte, width=6)
+            d.line((135, 240, 140, 285), fill=tinte, width=6)
+            if nummer % 2:
+                d.ellipse((140, 30, 170, 55), outline=tinte, width=5)       # Schleife
+        else:
+            d.line((120, 110, 120, 210), fill=tinte, width=6)
+            d.line((120, 210, 85, 285), fill=tinte, width=6)
+            d.line((120, 210, 155, 285), fill=tinte, width=6)
+            if nummer % 2:
+                d.rectangle((92, 18, 148, 44), fill=tinte)                  # Hut
+                d.line((75, 44, 165, 44), fill=tinte, width=6)
+            else:
+                d.line((106, 90, 134, 90), fill=tinte, width=5)             # Schnurrbart
+        # Arme, winkend
+        d.line((120, 140, 70, 110 if nummer % 2 else 170), fill=tinte, width=6)
+        d.line((120, 140, 175, 100), fill=tinte, width=6)
+        bild.save(os.path.join(ordner, name), "JPEG", quality=90)
 
 
 @functools.lru_cache(maxsize=4)

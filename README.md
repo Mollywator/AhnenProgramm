@@ -1,6 +1,6 @@
 # Ahnenprogramm
 
-**Version 1.15.0** · by Mollywator · MIT licence
+**Version 1.16.0** · by Mollywator · MIT licence
 
 Reads a genealogy report PDF and turns it into **one self-contained HTML page**
 that works offline and can be passed around a family — plus a small Windows
@@ -9,6 +9,12 @@ program for keeping that page up to date.
 The page loads nothing from the network. The data, the portraits and the manual
 are all inside it, and the fonts are ones that ship with Windows and macOS.
 Nobody who opens it phones anywhere.
+
+![The editor with the practice tree: twelve invented people with stick-figure portraits](docs/bilder/uebungsbaum.png)
+
+**Download:** the ready-to-run `Stammbaum.exe` for Windows is on the
+[releases page](https://github.com/Mollywator/AhnenProgramm/releases/latest) —
+no Python needed.
 
 ## What you end up with
 
