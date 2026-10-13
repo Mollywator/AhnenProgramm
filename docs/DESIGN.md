@@ -117,11 +117,37 @@ In the editor the same button also carries a check that runs in the background
 while the program is open: a mother who died before a child's birth, or a father
 who died more than eleven months before it (`diedBeforeChild` in the page,
 `died_before_child` in `build_data.py`, one rule tested against one table). It
-announces only findings it has not reported before, shows the open count as a
-red number on the button, and lets each finding be marked *geprüft* or
-*nicht nachprüfbar*. What it looked at and what was decided lives in
-`pruefung.json` beside `baum.json` (`tools/pruefung.py`) — never in the tree
-file, so the check changes no family data and needs no format version.
+announces only findings it has not reported before and lets each finding be
+marked *geprüft* or *nicht nachprüfbar*. What it looked at and what was decided
+lives in `pruefung.json` beside `baum.json` (`tools/pruefung.py`) — never in the
+tree file, so the check changes no family data and needs no format version.
+
+**The red number on the button is what waits for a decision**: open deaths plus
+suspected double entries nobody has answered (`openPairFindings`). The first
+line of the report says the same number as *zu entscheiden* and counts the rest
+apart - *Hinweise*, the import's findings that cannot be answered, then
+*geprüft*, *ausgeblendet*, *zusammengeführt*. A number that included the
+unanswerable ones could never reach zero.
+
+Three things about how the report is drawn, each the result of a fault:
+
+- **A finding is respelled for reading, never in the file.** The import writes
+  ASCII - "waere", a hyphen for a dash - and a tree keeps its findings from the
+  day it was read in. `tidyFinding` swaps a fixed list of words, so a surname
+  that happens to contain "ue" is never touched, and `pairOf` goes on reading
+  the sentence as it was stored.
+- **Answering redraws the body in place.** Taking the sheet down and putting a
+  new one up replayed the opening animation at every click. What was folded
+  open stays open across a redraw (`pruefFold`), and the question that replaces
+  a button hands the keyboard to *Abbrechen*, never to *Ja* - two presses of
+  Enter must not be a decision.
+- **Text in a sheet is `.sheet .legend`.** `.legend` alone is the bar under the
+  diagram, capitals in the sans face, and every explanation in the report and
+  in the merge dialog inherited that for as long as the two shared the name.
+
+Dates the page writes come from `todayISO()` / `localStamp()`, the clock on the
+wall. `toISOString()` is UTC: a decision taken after midnight was filed under
+the day before, next to a server that already wrote today.
 
 The strongest check works like this. The report prints a relationship label
 behind every name, always relative to the one person the report was written
@@ -741,7 +767,10 @@ it is answered.
 
 The ✕ rides along at the top the way the save bar rides along at the bottom.  A
 person's sheet is long enough to scroll, and getting out of one used to mean
-scrolling all the way back up to find the way out.
+scrolling all the way back up to find the way out.  Both stick at `-44px`, not
+at `0`: the scrim's own padding counts as room beyond the sticking point, so at
+`0` they stopped 44px short of the window's edge and the text scrolled past in
+the gap.
 
 A name in the form is a way through to that person: working down a family means
 hopping between them, and the hop goes through the same question, so nothing is

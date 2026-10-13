@@ -562,6 +562,10 @@ html[data-theme="abend"] .scrim{background:rgba(0,0,0,.7)}
    enough to scroll, and the ✕ used to scroll off the top with it - so getting
    out of a form meant scrolling all the way back up to find the way out. */
 .sheet-head{position:sticky;top:0;z-index:6;background:var(--paper)}
+/* The scrim's own padding counts as room above the sticking point, so at
+   `top:0` the head stopped 44px short of the window's edge and the text
+   scrolled past in the gap above it.  The question dialog does not scroll. */
+.scrim:not(.ask) .sheet-head{top:-44px}
 /* The question about unsaved work stands over the form it is asking about,
    which is itself a scrim at 200. */
 .scrim.ask{z-index:210;place-items:center}
@@ -647,9 +651,36 @@ html[data-theme="abend"] .scrim{background:rgba(0,0,0,.7)}
 .check .tag.Struktur{border-color:var(--accent);color:var(--accent)}
 .check .tag.Datum{border-color:var(--accent);color:var(--accent)}
 .check p{margin:0;font-size:15.5px;color:var(--ink-2)}
+/* on a phone the label column took a third of the line: it goes above */
+@media(max-width:560px){
+  .check{grid-template-columns:minmax(0,1fr);gap:6px}
+  .check .tag{justify-self:start;padding:2px 10px}
+}
+.check .hintline{font-size:12px;margin-top:5px}
+.check details{margin-top:6px}
+.sec > details{margin-top:12px}
+.sec summary.hintline{cursor:pointer;font-size:12px}
+.sec summary.hintline:hover{color:var(--ink-2)}
+/* what can be done about a finding: one row that wraps, under its sentence */
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.acts .btn{font-size:12px;letter-spacing:.06em;padding:6px 11px}
+.acts .askbox{flex:1 1 100%;margin-top:0}
+/* an entry number inside a sentence - a link in the line, not a box in it */
+.idlink{
+  font:inherit;color:var(--accent);background:none;border:0;padding:0;cursor:pointer;
+  border-bottom:1px dotted currentColor;
+}
+.idlink:hover,.idlink:focus-visible{border-bottom-style:solid}
+/* how the report stands, in one line above everything else */
+.pruefstand{
+  display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 4px;
+  font-family:var(--sans);font-size:12.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
+}
+.pruefstand b{font-weight:600;color:var(--ink);margin-right:3px}
+.pruefstand .offen,.pruefstand .offen b{color:var(--accent)}
 /* the second click of a decision */
 .askbox{margin-top:8px;padding:10px 12px;border:1px solid var(--accent);border-radius:3px;background:var(--accent-soft)}
-.askbox p{font-size:14.5px}
+.askbox p{font-size:14.5px;color:var(--ink)}
 .askbox .yes{border-color:var(--accent);color:var(--accent);font-weight:600}
 /* merging two entries */
 .mg-wrap{overflow-x:auto}
@@ -677,6 +708,10 @@ table.mg tr.mg-conflict{background:var(--accent-soft)}
   border:1px solid var(--rule);border-radius:2px;background:var(--card);color:inherit}
 .mg-hit{display:block;text-align:left;margin:0 0 6px}
 .legend{font-size:15px;color:var(--ink-2);margin:0 0 4px}
+/* The same class name is the bar under the diagram - a row of capitals in the
+   sans face.  Inside a sheet it is a sentence, and has to say so itself or it
+   inherits all of that. */
+.sheet .legend{display:block;font-family:inherit;letter-spacing:normal;text-transform:none;line-height:1.5}
 details.raw summary{
   font-family:var(--sans);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
   color:var(--ink-3);cursor:pointer;margin-bottom:8px;
@@ -732,6 +767,8 @@ html[data-edit] .editonly.flex{display:flex !important}
   position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:12px;
   padding:14px 26px;border-top:1px solid var(--rule);background:var(--paper);
 }
+/* the same 44px as under the head: the form showed through below the bar */
+.scrim:not(.ask) .sheet-foot{bottom:-44px}
 .sheet-foot .grow{flex:1 1 auto}
 .saveinfo{font-family:var(--sans);font-size:12px;letter-spacing:.07em;color:var(--ink-3)}
 .saveinfo.warn{color:var(--accent)}
@@ -1121,7 +1158,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.16.0";
+const VERSION = "1.17.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -2257,6 +2294,16 @@ function thumbHTML(p){
     ? `<img class="thumb" src="${src}" alt="" loading="lazy">`
     : `<span class="thumb mono">${esc(initials(p))}</span>`;
 }
+
+/* The day and the time as the clock on the wall has them.  `toISOString()` is
+   UTC: between midnight and two in the morning it still said yesterday, while
+   the server next to it was already writing today. */
+function localStamp(){
+  const d = new Date(), p = n => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate())
+    + " " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+}
+function todayISO(){ return localStamp().slice(0, 10); }
 
 function shortDate(d){
   if(!d) return "";
@@ -3529,14 +3576,27 @@ function finishDeathCheck(){
     true, 10000);
 }
 
+/* Suspected double entries nobody has decided about yet.  Only the editor can
+   decide, so only there do they count as waiting. */
+function openPairFindings(){
+  if(!EDIT) return [];
+  return (DATA.checks || []).filter(c => {
+    const pair = pairOf(c.text);
+    return pair && !pairConfirmed(pair);
+  });
+}
+
+/* The number on the button is what waits for a decision: deaths and suspected
+   double entries.  The other findings of the import cannot be answered, so
+   they are in the report without being counted here for good. */
 function updateCheckButton(){
   const btn = document.getElementById("checkBtn");
   if(!btn) return;
-  const open = openDeathFindings().length;
+  const open = openDeathFindings().length + openPairFindings().length;
   btn.hidden = !((DATA.checks || []).length || deathFound.size
                  || (PAPIERKORB && PAPIERKORB.eintraege.length));
   btn.innerHTML = "Prüfbericht" + (open ? ` <span class="pruefzahl">${open}</span>` : "");
-  btn.title = open ? open + " offene Punkte" : "";
+  btn.title = open ? (open === 1 ? "1 Punkt wartet" : open + " Punkte warten") + " auf eine Entscheidung" : "";
 }
 
 const DECIDED_TEXT = {geprueft: "Geprüft – passt so", verworfen: "Nicht nachprüfbar – ausgeblendet"};
@@ -3555,25 +3615,24 @@ const ASK_TEXT = {
    the attribute the second click carries to the handler that saves. */
 function askButton(value, label, doAttr, text){
   if(pruefAsk !== value)
-    return `<button class="btn" style="margin:6px 6px 0 0" data-ask="${value}">${label}</button>`;
+    return `<button class="btn" data-ask="${value}">${label}</button>`;
   return `<div class="askbox"><p>${text}</p>
-    <button class="btn yes" style="margin:6px 6px 0 0" ${doAttr}>Ja, bestätigen</button>
-    <button class="btn" style="margin:6px 6px 0 0" data-ask="">Abbrechen</button></div>`;
+    <div class="acts"><button class="btn yes" ${doAttr}>Ja, bestätigen</button>
+    <button class="btn" data-ask="">Abbrechen</button></div></div>`;
 }
 
 const deDate = iso => iso ? " am " + esc(iso.split("-").reverse().join(".")) : "";
 
 function deathRowHTML(f){
-  const undo = `<button class="btn" style="margin:6px 6px 0 0" data-decide="|${f.key}">rückgängig</button>`;
   return `<div class="check"><span class="tag Datum">Datum</span>
     <div><p>${linkIds(esc(f.text))}</p>
       ${!EDIT ? "" : f.decided
-        ? `<p class="hintline">${DECIDED_TEXT[f.decided]}${deDate((PRUEFUNG.entscheidungen[f.key] || {}).am)}.
-            ${undo}</p>`
-        : askButton("geprueft|" + f.key, "Geprüft – passt so",
+        ? `<p class="hintline">${DECIDED_TEXT[f.decided]}${deDate((PRUEFUNG.entscheidungen[f.key] || {}).am)}.</p>
+           <div class="acts"><button class="btn" data-decide="|${f.key}">Rückgängig</button></div>`
+        : `<div class="acts">${askButton("geprueft|" + f.key, "Geprüft – passt so",
                     `data-decide="geprueft|${f.key}"`, ASK_TEXT.geprueft)
           + askButton("verworfen|" + f.key, "Nicht nachprüfbar – ausblenden",
-                      `data-decide="verworfen|${f.key}"`, ASK_TEXT.verworfen)}</div></div>`;
+                      `data-decide="verworfen|${f.key}"`, ASK_TEXT.verworfen)}</div>`}</div></div>`;
 }
 
 /* Confirmed findings leave this list for the "Geprüft" section at the foot of
@@ -3584,10 +3643,11 @@ function deathReportHTML(){
   const open = all.filter(f => !f.decided), hidden = all.filter(f => f.decided === "verworfen");
   return `<div class="sec"><h3>Lebensdaten · Elternteil starb vor der Geburt</h3>
     ${open.length ? open.map(deathRowHTML).join("") : `<p class="legend">Nichts mehr offen.</p>`}
-    ${EDIT && open.length > 1 ? `<div style="margin-top:12px">${askButton("alle",
+    ${EDIT && open.length > 1 ? `<div class="acts" style="margin-top:12px">${askButton("alle",
       `Alle ${open.length} offenen ausblenden – nicht nachprüfbar`,
       `data-decide-all="verworfen"`, ASK_TEXT.alle)}</div>` : ""}
-    ${hidden.length ? `<details style="margin-top:12px"><summary class="hintline">Ausgeblendet – nicht nachprüfbar (${hidden.length})</summary>
+    ${hidden.length ? `<details${pruefFold.has("verworfen") ? " open" : ""} data-fold="verworfen">
+      <summary class="hintline">Ausgeblendet – nicht nachprüfbar (${hidden.length})</summary>
       ${hidden.map(deathRowHTML).join("")}</details>` : ""}</div>`;
 }
 
@@ -3618,30 +3678,48 @@ function confirmedHTML(){
   const pairs = (DATA.checks || []).map(c => [c, pairOf(c.text)]).filter(([, p]) => p && pairConfirmed(p));
   if(!deaths.length && !pairs.length) return "";
   return `<div class="sec"><h3>Geprüft · ${deaths.length + pairs.length} bestätigt</h3>
-    <p class="legend">Angesehen und für richtig befunden. „rückgängig“ holt einen Punkt zurück in den Bericht.</p>
+    <p class="legend">Angesehen und für richtig befunden. „Rückgängig“ holt einen Punkt zurück in die offene Liste.</p>
     ${pairs.map(([c, pair]) => `<div class="check"><span class="tag ${c.kind}">${KIND_LABEL(c.kind)}</span>
-      <div><p>${linkIds(esc(c.text))}</p>
-        <p class="hintline">Zwei verschiedene Personen – bestätigt${deDate(PRUEFUNG.doppelt[pairKey(pair)].am)}.
-          <button class="btn" style="margin:6px 6px 0 0" data-pair="${pair.join(" ")}">Beide im Stammbaum zeigen</button>
-          <button class="btn" style="margin:6px 6px 0 0" data-pair-undo="${pairKey(pair)}">rückgängig</button></p></div></div>`).join("")}
+      <div><p>${linkIds(esc(tidyFinding(c.text)))}</p>
+        <p class="hintline">Zwei verschiedene Personen – bestätigt${deDate(PRUEFUNG.doppelt[pairKey(pair)].am)}.</p>
+        <div class="acts"><button class="btn" data-pair="${pair.join(" ")}">Beide im Stammbaum zeigen</button>
+          <button class="btn" data-pair-undo="${pairKey(pair)}">Rückgängig</button></div></div></div>`).join("")}
     ${deaths.map(deathRowHTML).join("")}</div>`;
 }
 
+/* The report is drawn again after every answer, which would shut whatever had
+   been folded open - so what is open is remembered for as long as the page is. */
+var pruefFold = new Set();
+document.addEventListener("toggle", e => {
+  const d = e.target;
+  if(!d.dataset || !d.dataset.fold) return;
+  if(d.open) pruefFold.add(d.dataset.fold); else pruefFold.delete(d.dataset.fold);
+}, true);
+
 document.addEventListener("click", async e => {
   const ask = e.target.closest("[data-ask]");
-  if(ask){ pruefAsk = ask.dataset.ask; openCheckSheet(); return; }
+  if(ask){
+    pruefAsk = ask.dataset.ask;
+    openCheckSheet();
+    // the question took the button's place: the keyboard goes to the way out,
+    // never to "Ja" - two presses of Enter must not be a decision
+    const out = document.querySelector('#scrim .askbox [data-ask=""]');
+    if(out) out.focus();
+    return;
+  }
   const b = e.target.closest("[data-pair-ok],[data-pair-undo]");
   if(!b || !EDIT) return;
   const key = b.dataset.pairOk || b.dataset.pairUndo;
   const before = JSON.stringify(PRUEFUNG.doppelt);
   if(b.dataset.pairOk){
     PRUEFUNG.doppelt[key] = {print: pairPrint(key.split(":").map(Number)),
-                             am: new Date().toISOString().slice(0, 10)};
+                             am: todayISO()};
   } else delete PRUEFUNG.doppelt[key];
   b.disabled = true;
   try{
     await savePruefung();
     pruefAsk = "";
+    updateCheckButton();
     openCheckSheet();
   }catch(err){
     PRUEFUNG.doppelt = JSON.parse(before);
@@ -3656,7 +3734,7 @@ document.addEventListener("click", async e => {
 document.addEventListener("click", async e => {
   const b = e.target.closest("[data-decide],[data-decide-all]");
   if(!b || !EDIT) return;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const targets = b.dataset.decideAll
     ? openDeathFindings().map(f => [b.dataset.decideAll, f.key])
     : [b.dataset.decide.split("|")];
@@ -5115,7 +5193,7 @@ async function saveDraft(){
     return false;
   }
   draft.name = composeName(draft);
-  draft.edited = new Date().toISOString().slice(0, 19).replace("T", " ");
+  draft.edited = localStamp();
   syncTies();
 
   const me = draft.id;
@@ -5326,7 +5404,7 @@ async function storeFile(kind, file){
         file: out.file,
         title: file.name.replace(/\.[^.]+$/, ""),
         kind: (file.name.split(".").pop() || "").toLowerCase(),
-        added: new Date().toISOString().slice(0, 10),
+        added: todayISO(),
       });
     }
     markDirty(true);
@@ -6019,6 +6097,11 @@ document.getElementById("helpBtn").addEventListener("click", () => {
             Der Knopf <b>Prüfbericht</b> zeigt, was beim Einlesen nicht zusammenpasste.
             Das sind Fehler in den Quelldaten, keine Anzeigefehler.
           </p>` : ""}
+          ${EDIT ? `<p>
+            Im Programm prüft der <b>Prüfbericht</b> außerdem laufend die Lebensdaten und führt
+            auf, welche Einträge zusammengeführt wurden. Die rote Zahl am Knopf sagt, wie viele
+            Punkte auf eine Entscheidung warten.
+          </p>` : ""}
           <p>
             In dieser Datei stehen Fotos, Geburtsdaten und eine Anschrift lebender Menschen,
             auch von Kindern. Sie ist für die Familie gedacht. Bitte nicht ins offene Netz
@@ -6072,7 +6155,9 @@ const KIND_TEXT = {
   Pruefen: "möglich, aber ungewöhnlich",
   Luecke: "im Bericht nicht vorhanden"
 };
-document.getElementById("checkBtn").addEventListener("click", () => openCheckSheet());
+// opened afresh, the report asks nothing: a question left standing belongs to
+// the visit before
+document.getElementById("checkBtn").addEventListener("click", () => { pruefAsk = ""; openCheckSheet(); });
 function openCheckSheet(){
   const checks = DATA.checks || [];
   // a confirmed pair has moved down to "Geprüft"
@@ -6090,22 +6175,59 @@ function openCheckSheet(){
       ${open.filter(c => c.kind === k).map(c => {
         const pair = pairOf(c.text);
         return `<div class="check"><span class="tag ${k}">${KIND_LABEL(k)}</span>
-         <div><p>${linkIds(esc(c.text))}</p>${pair ? `
-           <button class="btn" style="margin:6px 6px 0 0" data-pair="${pair.join(" ")}">Beide im Stammbaum zeigen</button>
+         <div><p>${linkIds(esc(tidyFinding(c.text)))}</p>${pair ? `<div class="acts">
+           <button class="btn" data-pair="${pair.join(" ")}">Beide im Stammbaum zeigen</button>
            ${EDIT ? askButton("paar|" + pairKey(pair), "Passt so – zwei verschiedene Personen",
                               `data-pair-ok="${pairKey(pair)}"`, ASK_TEXT.paar)
-                  + `<button class="btn" style="margin:6px 6px 0 0" data-merge="${pair.join(" ")}">Zusammenführen …</button>` : ""}` : ""}</div></div>`;
+                  + `<button class="btn" data-merge="${pair.join(" ")}">Zusammenführen …</button>` : ""}</div>` : ""}</div></div>`;
       }).join("")}
     </div>`).join("")
     : deaths || confirmed || merged ? ""
-    : `<div class="sec"><p class="legend">Nichts gefunden - alle Angaben des Berichts passen zusammen.</p></div>`)
+    : `<div class="sec"><p class="legend">Nichts gefunden – alle Angaben passen zusammen.</p></div>`)
     + confirmed + merged;
 
-  // answering a question redraws the report - it must not jump back to the top
-  // (the scrim is what scrolls - the sheet itself grows to its full length)
+  // how the report stands, before anything else
+  // (the same number as on the button: what waits for a decision.  The rest
+  // of the import's findings cannot be answered and are counted apart.)
+  const found = [...deathFound.values()].flat();
+  const waiting = openDeathFindings().length + openPairFindings().length;
+  const count = {
+    offen: open.length + found.filter(f => !f.decided).length,
+    geprueft: found.filter(f => f.decided === "geprueft").length
+      + checks.filter(c => { const p = pairOf(c.text); return p && pairConfirmed(p); }).length,
+    verworfen: found.filter(f => f.decided === "verworfen").length,
+    vereint: EDIT ? PAPIERKORB.eintraege.filter(e => !e.rueckgaengig).length : 0,
+  };
+  const stand = `<p class="pruefstand">
+    ${EDIT ? `<span${waiting ? ' class="offen"' : ""}><b>${waiting}</b>zu entscheiden</span>
+              ${count.offen > waiting ? `<span><b>${count.offen - waiting}</b>${count.offen - waiting === 1 ? "Hinweis" : "Hinweise"}</span>` : ""}`
+           : `<span><b>${count.offen}</b>${count.offen === 1 ? "Punkt" : "Punkte"}</span>`}
+    ${count.geprueft ? `<span><b>${count.geprueft}</b>geprüft</span>` : ""}
+    ${count.verworfen ? `<span><b>${count.verworfen}</b>ausgeblendet</span>` : ""}
+    ${count.vereint ? `<span><b>${count.vereint}</b>zusammengeführt</span>` : ""}</p>`;
+  const inner = `<div class="sheet-intro">${stand}
+      ${deaths ? `<p class="legend" style="margin-top:10px;max-width:64ch">
+        <b>Lebensdaten:</b> Das Programm prüft im Hintergrund, ob ein Elternteil zu lange vor der
+        Geburt eines Kindes gestorben ist. Ein erledigter Punkt meldet sich erst wieder, wenn sich
+        eines der Daten ändert. Am Stammbaum selbst ändert die Prüfung nichts.
+      </p>` : ""}
+      ${checks.length ? `<p class="legend" style="margin-top:10px;max-width:64ch">
+        <b>Einlesen der PDF:</b> Alle Angaben wurden gegeneinander gerechnet – Elternlinien gegen
+        die gedruckten Kinderlisten, Lebensdaten gegen die Generationenfolge, die
+        Verwandtschaftsbezeichnungen des Berichts gegen den errechneten Stammbaum.
+        ${checks.length === 1 ? "Ein Punkt passte" : checks.length + " Punkte passten"} dabei nicht
+        zusammen. Das sind Unstimmigkeiten in den Quelldaten, keine Anzeigefehler.
+      </p>` : ""}
+    </div>
+    ${body}`;
+
+  // Answering a question draws the report again.  In place: taking the sheet
+  // away and putting a new one up played the opening animation at every click,
+  // and the scroll position had to be carried across by hand.
   const was = document.querySelector('#scrim [aria-label="Prüfbericht"]');
-  const scroll = was ? was.parentElement.scrollTop : 0;
+  if(was){ was.querySelector(".sheet-body").innerHTML = inner; return; }
   closeSheet();
+  if(document.getElementById("scrim")) return;       // unsaved form: stays open
   document.body.insertAdjacentHTML("beforeend", `<div class="scrim" id="scrim">
     <div class="sheet" role="dialog" aria-modal="true" aria-label="Prüfbericht">
       <div class="sheet-head" style="grid-template-columns:minmax(0,1fr) auto">
@@ -6115,26 +6237,10 @@ function openCheckSheet(){
         </div>
         <button class="closer" data-close="1" aria-label="Schließen">×</button>
       </div>
-      <div class="sheet-body">
-        <div class="sheet-intro">
-          ${deaths ? `<p class="legend" style="margin-top:10px;max-width:56ch">
-            Das Programm prüft im Hintergrund, ob ein Elternteil zu lange vor der Geburt eines
-            Kindes gestorben ist. Stimmt es trotzdem, oder lässt es sich nicht mehr nachprüfen,
-            wird der Punkt hier erledigt – er meldet sich erst wieder, wenn sich eines der Daten
-            ändert. Die Stammbaumdaten selbst werden dabei nicht verändert.
-          </p>` : ""}
-          ${checks.length ? `<p class="legend" style="margin-top:10px;max-width:56ch">
-            Beim Einlesen der PDF wurden alle Angaben gegeneinander gerechnet: Elternlinien gegen die
-            gedruckten Kinderlisten, Lebensdaten gegen die Generationenfolge und die
-            Verwandtschaftsbezeichnungen des Berichts gegen den errechneten Stammbaum.
-            ${checks.length} Punkte blieben dabei offen. Alles andere stimmt überein.
-          </p>` : ""}
-        </div>
-        ${body}</div>
+      <div class="sheet-body">${inner}</div>
     </div>
   </div>`);
   document.body.style.overflow = "hidden";
-  if(scroll) document.getElementById("scrim").scrollTop = scroll;
 }
 /* Every person the report names carries their entry number, and the number
    opens their sheet.  Older findings wrote "Person 12" instead of "#12", and a
@@ -6142,8 +6248,25 @@ function openCheckSheet(){
 function linkIds(s){
   return s.replace(/(#|\b(?:Person|Elternteil) )(\d+)\b/g, (m, lead, id) => BY_ID.has(+id)
     ? (lead === "#" ? "" : lead)
-      + `<button class="plink" style="padding:1px 7px;font-size:14px" data-open="${id}">#${id}</button>`
+      + `<button class="idlink" data-open="${id}" title="Personenblatt öffnen">#${id}</button>`
     : m);
+}
+
+/* The import writes its findings in plain ASCII - "waere", a hyphen for a
+   dash - and a tree keeps them from the day it was read in.  They are respelled
+   for reading only, word by word from a fixed list, so a name is never touched
+   and `pairOf` goes on reading the sentence as it was stored. */
+const FINDING_WORDS = {
+  waere: "wäre", fuehrt: "führt", gefuehrt: "geführt", verknuepft: "verknüpft", ueber: "über",
+  pruefen: "prüfen", liess: "ließ", liesse: "ließe", ausserhalb: "außerhalb",
+  moeglicherweise: "möglicherweise", Angehoerige: "Angehörige", Erzaehltext: "Erzähltext",
+};
+function tidyFinding(s){
+  return s
+    .replace(new RegExp("\\b(" + Object.keys(FINDING_WORDS).join("|") + ")\\b", "g"), w => FINDING_WORDS[w])
+    .replace(/ - /g, " – ")
+    .replace(/\b(\d{4})-(\d{4})\b/g, "$1–$2")
+    .replace(/(^|[\s(])'([^']+)'(?=[\s.,;:)]|$)/g, "$1„$2“");
 }
 
 /* The two entries a finding suspects of being one person, or null.  "X ist
@@ -6479,7 +6602,7 @@ var PAPIERKORB = (EDIT && EDIT.papierkorb) || {eintraege: []};
 function daysLeft(e){
   const day = Date.parse(String(e.am || "").slice(0, 10));
   if(isNaN(day)) return 0;
-  const today = Date.parse(new Date().toISOString().slice(0, 10));
+  const today = Date.parse(todayISO());
   return 60 - Math.round((today - day) / 86400000);
 }
 
@@ -6519,13 +6642,14 @@ function mergedHTML(){
       + e.behalten + " bekommt wieder die Angaben von vorher."
       + (since.length ? " Seit dem Zusammenführen an #" + e.behalten + " geändert – das geht dabei verloren: "
         + since.join(", ") + "." : "");
-    return `<div class="check"><span class="tag Struktur">${done ? "Zurück" : "Zusammen"}</span><div>
-      <p>${esc(e.namen[1] || "")} (#${e.entfernt}) ${done ? "war" : "ist"} in ${linkIds(esc((e.namen[0] || "") + " (#" + e.behalten + ")"))}
-        zusammengeführt${deDate(String(e.am).slice(0, 10))}.</p>
+    return `<div class="check"><span class="tag${done ? "" : " Struktur"}">${done ? "Zurück" : "Vereint"}</span><div>
+      <p>${esc(e.namen[1] || "")} (#${e.entfernt}) ${done ? "war" : "wurde"}${deDate(String(e.am).slice(0, 10))} mit
+        ${linkIds(esc((e.namen[0] || "") + " (#" + e.behalten + ")"))} zusammengeführt.</p>
       ${done ? `<p class="hintline">Rückgängig gemacht${deDate(String(done.am).slice(0, 10))} – der Eintrag ist wieder
           ${linkIds("#" + done.nummer)}.${(done.hinweise || []).map(h => " " + esc(h)).join("")}</p>`
-        : `<p class="hintline">Noch ${left} Tag${left === 1 ? "" : "e"} im Papierkorb.</p>`}
-      <details style="margin-top:6px"><summary class="hintline">Was dabei geschah</summary>
+        : `<p class="hintline">${left ? `Noch ${left} Tag${left === 1 ? "" : "e"}` : "Nur noch heute"} im Papierkorb –
+            so lange lässt es sich zurücknehmen.</p>`}
+      <details${pruefFold.has("merge|" + e.id) ? " open" : ""} data-fold="merge|${esc(e.id)}"><summary class="hintline">Was dabei geschah</summary>
         <ul class="mg-list">${Object.entries(e.felder || {}).map(([k, v]) =>
           `<li><b>${esc(fieldTitle(k))}</b> – ${esc(said(v, e, k))}</li>`).join("")}</ul>
         ${Object.keys(e.verwandte || {}).length ? `<p class="legend" style="margin-top:8px">Umgehängte Verwandte</p>
@@ -6534,7 +6658,8 @@ function mergedHTML(){
         ${(e.dateien || []).length ? `<p class="legend" style="margin-top:8px">Verschobene Unterlagen</p>
           <ul class="mg-list">${e.dateien.map(([von, nach]) => `<li>${esc(von)} → ${esc(nach)}</li>`).join("")}</ul>` : ""}
       </details>
-      ${done ? "" : askButton("merge-undo|" + e.id, "rückgängig", `data-merge-undo="${esc(e.id)}"`, esc(undoText))}
+      ${done ? "" : `<div class="acts">${askButton("merge-undo|" + e.id, "Rückgängig",
+                       `data-merge-undo="${esc(e.id)}"`, esc(undoText))}</div>`}
     </div></div>`;
   });
   return `<div class="sec" id="zusammengefuehrt"><h3>Zusammengeführt · 60 Tage im Papierkorb</h3>${rows.join("")}</div>`;

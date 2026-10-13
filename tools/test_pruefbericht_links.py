@@ -53,7 +53,8 @@ class TestSeite(unittest.TestCase):
         node = shutil.which("node")
         if not node:
             self.skipTest("node nicht gefunden")
-        out = subprocess.run([node, "-e", code], capture_output=True, text=True)
+        # node writes UTF-8 whatever the console's code page says
+        out = subprocess.run([node, "-e", code], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(out.returncode, 0, out.stderr)
         return json.loads(out.stdout)
 
@@ -70,9 +71,10 @@ class TestSeite(unittest.TestCase):
         ])
         mit_zwei, alt, eltern, fremd = self.lauf(code)
         self.assertEqual(mit_zwei.count('data-open="'), 2)
-        self.assertIn('Person <button class="plink"', alt)
-        self.assertIn('data-open="12">#12</button>', alt)
-        self.assertIn('Elternteil <button class="plink"', eltern)
+        self.assertIn('Person <button class="idlink"', alt)
+        self.assertIn('data-open="12"', alt)
+        self.assertIn('>#12</button>', alt)
+        self.assertIn('Elternteil <button class="idlink"', eltern)
         self.assertEqual(fremd, "Personen-ID 7 fehlt, Kind #99 auch",
                          "wer nicht im Baum steht, bekommt keinen Knopf")
 
@@ -86,6 +88,74 @@ class TestSeite(unittest.TestCase):
         for (text, erwartet), ist in zip(FAELLE_PAAR, self.lauf(code)):
             with self.subTest(text=text):
                 self.assertEqual(ist, erwartet)
+
+    def test_funde_werden_nur_zum_lesen_umgeschrieben(self):
+        code = "\n".join([
+            teil(self.s, r"const FINDING_WORDS = \{.*?\n\};"),
+            teil(self.s, r"function tidyFinding\(s\)\{.*?\n\}"),
+            "console.log(JSON.stringify([",
+            "  tidyFinding('Ilvi Feldkamp (#12) waere bei der Geburt erst 9 Jahre alt gewesen.'),",
+            "  tidyFinding('Zorbas Quendel (#5): Lebensalter 106 Jahre (1700-1806).'),",
+            "  tidyFinding(\"Ilvi Feldkamp (#12): Ereignis 'Heirat' 1690 liegt vor der Geburt 1704.\"),",
+            "  tidyFinding('A (#1) und B (#2) sind dieselbe Person, zweimal erfasst - gemeinsam: C (#3).'),",
+            "  tidyFinding('Xaver Fuehrtmann-Waerenbach (#7): Geschlecht nicht bestimmbar.'),",
+            "]));",
+        ])
+        waere, spanne, zitat, strich, name = self.lauf(code)
+        self.assertIn("wäre bei", waere)
+        self.assertIn("(1700–1806)", spanne)
+        self.assertIn("„Heirat“", zitat)
+        self.assertIn("erfasst – gemeinsam", strich)
+        self.assertIn("Fuehrtmann-Waerenbach", name, "ein Name wird nie umgeschrieben")
+        f = teil(self.s, r"function openCheckSheet\(\)\{.*?\n\}")
+        self.assertIn("pairOf(c.text)", f, "gelesen wird der Satz, wie er gespeichert ist")
+        self.assertIn("linkIds(esc(tidyFinding(c.text)))", f)
+
+    def test_die_zahl_am_knopf_zaehlt_was_auf_eine_entscheidung_wartet(self):
+        knopf = teil(self.s, r"function updateCheckButton\(\)\{.*?\n\}")
+        self.assertIn("openDeathFindings().length + openPairFindings().length", knopf)
+        code = "\n".join([
+            "const BY_ID = new Map([[5, {}], [12, {name: 'A'}], [34, {name: 'A'}]]);",
+            "const PRUEFUNG = {doppelt: {}};",
+            teil(self.s, r"const pairKey = pair => [^\n]*;"),
+            teil(self.s, r"function pairPrint\(pair\)\{.*?\n\}"),
+            teil(self.s, r"function pairConfirmed\(pair\)\{.*?\n\}"),
+            teil(self.s, r"function pairOf\(text, evenGone\)\{.*?\n\}"),
+            teil(self.s, r"function openPairFindings\(\)\{.*?\n\}"),
+            "const DATA = {checks: " + json.dumps([{"text": f[0]} for f in FAELLE_PAAR]) + "};",
+            "var EDIT = null; const out = [openPairFindings().length];",
+            "EDIT = {}; out.push(openPairFindings().length);",
+            "PRUEFUNG.doppelt['12:34'] = {print: pairPrint([12, 34])};",
+            "out.push(openPairFindings().length);",
+            "console.log(JSON.stringify(out));",
+        ])
+        self.assertEqual(self.lauf(code), [0, 3, 0],
+                         "nur im Programm, und nur solange niemand entschieden hat")
+
+    def test_neu_zeichnen_ersetzt_nur_den_inhalt(self):
+        f = teil(self.s, r"function openCheckSheet\(\)\{.*?\n\}")
+        self.assertIn('was.querySelector(".sheet-body").innerHTML = inner; return;', f,
+                      "kein Abbau und Neuaufbau - das spielte bei jedem Klick die Einblendung ab")
+        self.assertLess(f.index("innerHTML = inner; return;"), f.index("closeSheet()"))
+
+    def test_das_datum_ist_das_der_uhr_an_der_wand(self):
+        self.assertNotIn(".toISOString()", self.s,
+                         "UTC: nach Mitternacht stand noch das Datum von gestern da")
+        code = "\n".join([
+            teil(self.s, r"function localStamp\(\)\{.*?\n\}"),
+            teil(self.s, r"function todayISO\(\)\{[^\n]*\}"),
+            "const d = new Date(), p = n => String(n).padStart(2, '0');",
+            "console.log(JSON.stringify([todayISO(),",
+            "  d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()), localStamp().length]));",
+        ])
+        ist, soll, laenge = self.lauf(code)
+        self.assertEqual(ist, soll)
+        self.assertEqual(laenge, 19)
+
+    def test_text_im_blatt_ist_ein_satz_und_keine_leiste(self):
+        regel = teil(self.s, r"\.sheet \.legend\{[^}]*\}")
+        for noetig in ("display:block", "text-transform:none", "letter-spacing:normal", "font-family:inherit"):
+            self.assertIn(noetig, regel, "sonst erbt der Text die Leiste unter dem Diagramm")
 
     def test_der_knopf_steht_im_bericht(self):
         f = teil(self.s, r"function openCheckSheet\(\)\{.*?\n\}")
