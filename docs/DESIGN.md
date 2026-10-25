@@ -193,7 +193,9 @@ to a canvas to become a PNG, resolve nothing, so every portrait would be an empt
 frame. `photosAsData` fetches them at the moment of export, for the people in the
 picture only — 29 ms for eighteen of them.
 
-- The register on the left searches names, places, years and occupations.
+- The register on the left searches names, places, years and occupations, and
+  entry numbers: `262` puts entry #262 first, `#262` shows it alone. A number
+  that was merged away says which number it lives on as now.
 - Clicking a row opens that person's sheet; clicking a box in the diagram makes
   that person the new centre. The ⓘ badge on a box opens the sheet instead.
 - Every other person is then labelled with their relationship *to that centre* —
