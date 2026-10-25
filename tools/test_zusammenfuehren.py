@@ -97,6 +97,32 @@ class TestZusammenfuehren(unittest.TestCase):
         # Zorbas reaches #6 only through `children`, which is rebuilt on saving
         self.assertEqual(sorted(e["verwandte"]), ["7", "8"])
 
+    def test_kinder_beider_eintraege_landen_bei_der_bleibenden_nummer(self):
+        tree = baum()
+        tree["people"] += [
+            person(20, "Hedda Quendel", sex="w", parents=[3], parent_kind={"3": "step"}),
+            person(21, "Ole Grumbach", sex="m", parents=[6, 7]),
+            # an entry the PDF gave both numbers of the same mother
+            person(22, "Tjark Grumbach", sex="m", parents=[3, 6, 7], parent_kind={"6": "blood"}),
+        ]
+        person_lib.normalise_links(tree["people"])
+        original = copy.deepcopy(tree)
+        e = self.zusammen_und_gespeichert(tree)
+        p = nach_id(tree)
+        self.assertEqual(sorted(p[3]["children"]), [8, 20, 21, 22])
+        self.assertEqual(p[7]["children"], [8, 21, 22])
+        self.assertEqual(p[20]["parents"], [3])
+        self.assertEqual(p[20]["parent_kind"], {"3": "step"}, "the kind on the kept number wins")
+        self.assertEqual(p[21]["parents"], [3, 7])
+        self.assertEqual(p[22]["parents"], [3, 7], "one mother, not the same one twice")
+        self.assertEqual(p[22]["parent_kind"], {"3": "blood"})
+        self.assertFalse(any(6 in q["parents"] or 6 in q["children"] for q in tree["people"]))
+        # and taken back, every child hangs where it hung
+        z.rueckgaengig(tree, e, self.docs)
+        person_lib.normalise_links(tree["people"])
+        gleich = lambda t: sorted(t["people"], key=lambda q: q["id"])  # noqa: E731
+        self.assertEqual(gleich(tree), gleich(original))
+
     def test_belegter_dateiname_wird_umbenannt(self):
         os.makedirs(os.path.join(self.docs, "3"))
         with open(os.path.join(self.docs, "3", "brief.pdf"), "w") as fh:
