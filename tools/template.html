@@ -3548,6 +3548,7 @@ var PRUEFUNG = (EDIT && EDIT.pruefung) || {personen: {}, entscheidungen: {}};
 PRUEFUNG.personen = PRUEFUNG.personen || {};
 PRUEFUNG.entscheidungen = PRUEFUNG.entscheidungen || {};
 PRUEFUNG.doppelt = PRUEFUNG.doppelt || {};
+PRUEFUNG.abgehakt = PRUEFUNG.abgehakt || {};
 var pruefAsk = "";                // the decision waiting for its second click
 var deathSeen = new Map();        // person id -> what the check last read
 var deathFound = new Map();       // person id -> findings as that person's child
@@ -3663,12 +3664,14 @@ function updateCheckButton(){
 const DECIDED_TEXT = {geprueft: "Geprüft – passt so", verworfen: "Nicht nachprüfbar – ausgeblendet"};
 
 const ASK_TEXT = {
-  geprueft: "Wirklich als geprüft ablegen? Der Punkt steht dann unten unter „Geprüft“ "
+  geprueft: "Wirklich als geprüft ablegen? Der Punkt steht dann unten unter „Abgehakt“ "
     + "und meldet sich erst wieder, wenn sich eines der Daten ändert.",
   verworfen: "Wirklich ausblenden? Der Punkt meldet sich erst wieder, wenn sich eines der Daten ändert.",
   alle: "Wirklich alle offenen Punkte dieser Liste ausblenden?",
-  paar: "Wirklich zwei verschiedene Menschen? Der Punkt steht dann unten unter „Geprüft“ "
+  paar: "Wirklich zwei verschiedene Menschen? Der Punkt steht dann unten unter „Abgehakt“ "
     + "und meldet sich erst wieder, wenn sich Name, Geburt oder Eltern der beiden ändern.",
+  hinweis: "Wirklich abhaken? Der Punkt steht dann unten unter „Abgehakt“ und lässt sich dort "
+    + "jederzeit aufklappen und zurückholen.",
 };
 
 /* A decision takes two clicks, so a finding cannot be clicked away in passing:
@@ -3731,21 +3734,38 @@ function pairConfirmed(pair){
 
 const KIND_LABEL = k => k === "Pruefen" ? "Prüfen" : k === "Luecke" ? "Lücke" : k;
 
+/* ---- findings of the import ticked off as fine ----------------------------
+   Kept by a fingerprint of the sentence (FNV-1a), so a tree read in again with
+   a different sentence asks again. */
+function noteKey(text){
+  let h = 0x811c9dc5;
+  for(const ch of String(text)){ h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(36);
+}
+const noteTicked = c => !!(EDIT && PRUEFUNG.abgehakt[noteKey(c.text)]);
+
 /* Everything somebody looked at and confirmed, in one place at the foot of the
    report, each with the day it was confirmed and a way back. */
 function confirmedHTML(){
   if(!EDIT) return "";
   const deaths = [...deathFound.values()].flat().filter(f => f.decided === "geprueft");
   const pairs = (DATA.checks || []).map(c => [c, pairOf(c.text)]).filter(([, p]) => p && pairConfirmed(p));
-  if(!deaths.length && !pairs.length) return "";
-  return `<div class="sec"><h3>Geprüft · ${deaths.length + pairs.length} bestätigt</h3>
+  const notes = (DATA.checks || []).filter(c => !pairOf(c.text) && noteTicked(c));
+  const n = deaths.length + pairs.length + notes.length;
+  if(!n) return "";
+  return `<div class="sec"><details${pruefFold.has("abgehakt") ? " open" : ""} data-fold="abgehakt">
+    <summary><h3 style="display:inline">Abgehakt · ${n} ${n === 1 ? "Punkt" : "Punkte"}</h3></summary>
     <p class="legend">Angesehen und für richtig befunden. „Rückgängig“ holt einen Punkt zurück in die offene Liste.</p>
+    ${notes.map(c => `<div class="check"><span class="tag ${c.kind}">${KIND_LABEL(c.kind)}</span>
+      <div><p>${linkIds(esc(tidyFinding(c.text)))}</p>
+        <p class="hintline">Abgehakt – passt so${deDate(PRUEFUNG.abgehakt[noteKey(c.text)].am)}.</p>
+        <div class="acts"><button class="btn" data-note-undo="${noteKey(c.text)}">Rückgängig</button></div></div></div>`).join("")}
     ${pairs.map(([c, pair]) => `<div class="check"><span class="tag ${c.kind}">${KIND_LABEL(c.kind)}</span>
       <div><p>${linkIds(esc(tidyFinding(c.text)))}</p>
         <p class="hintline">Zwei verschiedene Personen – bestätigt${deDate(PRUEFUNG.doppelt[pairKey(pair)].am)}.</p>
         <div class="acts"><button class="btn" data-pair="${pair.join(" ")}">Beide im Stammbaum zeigen</button>
           <button class="btn" data-pair-undo="${pairKey(pair)}">Rückgängig</button></div></div></div>`).join("")}
-    ${deaths.map(deathRowHTML).join("")}</div>`;
+    ${deaths.map(deathRowHTML).join("")}</details></div>`;
 }
 
 /* The report is drawn again after every answer, which would shut whatever had
@@ -3768,14 +3788,17 @@ document.addEventListener("click", async e => {
     if(out) out.focus();
     return;
   }
-  const b = e.target.closest("[data-pair-ok],[data-pair-undo]");
+  const b = e.target.closest("[data-pair-ok],[data-pair-undo],[data-note-ok],[data-note-undo]");
   if(!b || !EDIT) return;
   const key = b.dataset.pairOk || b.dataset.pairUndo;
-  const before = JSON.stringify(PRUEFUNG.doppelt);
+  const note = b.dataset.noteOk || b.dataset.noteUndo;
+  const before = JSON.stringify([PRUEFUNG.doppelt, PRUEFUNG.abgehakt]);
   if(b.dataset.pairOk){
     PRUEFUNG.doppelt[key] = {print: pairPrint(key.split(":").map(Number)),
                              am: todayISO()};
-  } else delete PRUEFUNG.doppelt[key];
+  } else if(key) delete PRUEFUNG.doppelt[key];
+  else if(b.dataset.noteOk) PRUEFUNG.abgehakt[note] = {am: todayISO()};
+  else delete PRUEFUNG.abgehakt[note];
   b.disabled = true;
   try{
     await savePruefung();
@@ -3783,7 +3806,7 @@ document.addEventListener("click", async e => {
     updateCheckButton();
     openCheckSheet();
   }catch(err){
-    PRUEFUNG.doppelt = JSON.parse(before);
+    [PRUEFUNG.doppelt, PRUEFUNG.abgehakt] = JSON.parse(before);
     say("Nicht gespeichert – " + err.message, true);
     b.disabled = false;
   }
@@ -6227,10 +6250,10 @@ const KIND_TEXT = {
 document.getElementById("checkBtn").addEventListener("click", () => { pruefAsk = ""; openCheckSheet(); });
 function openCheckSheet(){
   const checks = DATA.checks || [];
-  // a confirmed pair has moved down to "Geprüft"
+  // a confirmed pair or a ticked finding has moved down to "Abgehakt"
   const open = checks.filter(c => {
     const p = pairOf(c.text), raw = pairOf(c.text, true);
-    return !(p && pairConfirmed(p)) && !(raw && mergedAway(raw));
+    return !(p && pairConfirmed(p)) && !(raw && mergedAway(raw)) && !(!p && noteTicked(c));
   });
   const order = ["Struktur", "Datum", "Pruefen", "Luecke"];
   const groups = order.filter(k => open.some(c => c.kind === k));
@@ -6242,7 +6265,9 @@ function openCheckSheet(){
       ${open.filter(c => c.kind === k).map(c => {
         const pair = pairOf(c.text);
         return `<div class="check"><span class="tag ${k}">${KIND_LABEL(k)}</span>
-         <div><p>${linkIds(esc(tidyFinding(c.text)))}</p>${pair ? `<div class="acts">
+         <div><p>${linkIds(esc(tidyFinding(c.text)))}</p>${!pair && EDIT ? `<div class="acts">${askButton(
+           "hinweis|" + noteKey(c.text), "Abhaken – passt so", `data-note-ok="${noteKey(c.text)}"`,
+           ASK_TEXT.hinweis)}</div>` : ""}${pair ? `<div class="acts">
            <button class="btn" data-pair="${pair.join(" ")}">Beide im Stammbaum zeigen</button>
            ${EDIT ? askButton("paar|" + pairKey(pair), "Passt so – zwei verschiedene Personen",
                               `data-pair-ok="${pairKey(pair)}"`, ASK_TEXT.paar)
@@ -6261,7 +6286,7 @@ function openCheckSheet(){
   const count = {
     offen: open.length + found.filter(f => !f.decided).length,
     geprueft: found.filter(f => f.decided === "geprueft").length
-      + checks.filter(c => { const p = pairOf(c.text); return p && pairConfirmed(p); }).length,
+      + checks.filter(c => { const p = pairOf(c.text); return p ? pairConfirmed(p) : noteTicked(c); }).length,
     verworfen: found.filter(f => f.decided === "verworfen").length,
     vereint: EDIT ? PAPIERKORB.eintraege.filter(e => !e.rueckgaengig).length : 0,
   };
@@ -6269,7 +6294,7 @@ function openCheckSheet(){
     ${EDIT ? `<span${waiting ? ' class="offen"' : ""}><b>${waiting}</b>zu entscheiden</span>
               ${count.offen > waiting ? `<span><b>${count.offen - waiting}</b>${count.offen - waiting === 1 ? "Hinweis" : "Hinweise"}</span>` : ""}`
            : `<span><b>${count.offen}</b>${count.offen === 1 ? "Punkt" : "Punkte"}</span>`}
-    ${count.geprueft ? `<span><b>${count.geprueft}</b>geprüft</span>` : ""}
+    ${count.geprueft ? `<span><b>${count.geprueft}</b>abgehakt</span>` : ""}
     ${count.verworfen ? `<span><b>${count.verworfen}</b>ausgeblendet</span>` : ""}
     ${count.vereint ? `<span><b>${count.vereint}</b>zusammengeführt</span>` : ""}</p>`;
   const inner = `<div class="sheet-intro">${stand}
@@ -6340,24 +6365,29 @@ function tidyFinding(s){
    mit A und mit B verheiratet" is about A and B, not about X. */
 function pairOf(text, evenGone){
   if(!/dieselbe Person|doppelt erfasst|gleicher Name und Jahrgang/.test(text)) return null;
-  const ids = [...text.matchAll(/#(\d+)/g)].map(m => +m[1]).filter(id => evenGone || BY_ID.has(id));
+  // the pair is read from the sentence first and checked after: one of the two
+  // merged away must not let the next number in the sentence take its place
+  const ids = [...text.matchAll(/#(\d+)/g)].map(m => +m[1]);
   const pair = /verheiratet/.test(text) ? ids.slice(1, 3) : ids.slice(0, 2);
-  return pair.length === 2 && pair[0] !== pair[1] ? pair : null;
+  return pair.length === 2 && pair[0] !== pair[1]
+    && (evenGone || pair.every(id => BY_ID.has(id))) ? pair : null;
 }
 
 /* Both entries pointed out in the tree exactly as it stands.  Nothing is laid
    out again and nothing moves: somebody deciding whether two entries are one
    person has to see them where they really are - two boxes pulled next to each
    other would claim something the tree does not.  A marked box off screen gets
-   an arrow at the edge of the picture; one this view does not draw at all is
-   named in the bar, with the one click that shows the whole tree. */
+   an arrow at the edge of the picture.  When this view does not draw one of
+   them at all, the whole tree is shown at once - nobody can compare two entries
+   of which only one is on the screen. */
 function showPair(ids){
   ids = ids.filter(id => BY_ID.has(id));
   if(ids.length < 2) return;
   closeSheet();
   if(document.getElementById("scrim")) return;       // unsaved form: stays open
   spotlight = ids;
-  markSpot();
+  if(ids.every(id => stageSet().has(id))) markSpot();
+  else showWholeTree();
 }
 
 /* Marks on the boxes already drawn - not worth laying three hundred people out. */
@@ -6368,8 +6398,8 @@ function markSpot(){
   updateSpotArrows();
 }
 
-/* Only on request: the view that draws everybody.  The centre stays; the
-   linked families join only when one of the marked would be missing without. */
+/* The view that draws everybody.  The centre stays; the linked families join
+   only when one of the marked would be missing without. */
 function showWholeTree(){
   setMode("alle");
   if(centre !== null && !spotlight.every(id => stageSet().has(id))){
@@ -6504,20 +6534,31 @@ function mergeValue(f, v){
       + `<small>${esc(v.slice(0, 3).map(one).filter(Boolean).join(" · "))}${v.length > 3 ? " …" : ""}</small>`;
   }
   if(f.feld === "sex") return v === "m" ? "männlich" : v === "w" ? "weiblich" : esc(String(v));
-  if(["birth", "death", "burial"].includes(f.feld)) return esc(fullEvent(v) || v.note || stableJSON(v));
-  if(f.feld === "contact") return esc(Object.values(v).filter(Boolean).join(" · "));
-  if(typeof v === "object") return esc(stableJSON(v));
+  if(typeof v === "object") return esc(shownText(f, v) || stableJSON(v));
   return f.art === "text" ? `<div class="mg-text">${esc(String(v))}</div>` : esc(String(v));
 }
 
-/* The words a single value shows, spacing collapsed. Two values that read the
-   same, letter for letter, are the same - whatever the record keeps beside it. */
+/* What the table shows of a value that is a record: a birth with its date,
+   place and remark, a contact with its entries.  The remark is shown as well -
+   left out, two births read alike in the table and still differed. */
+function shownText(f, v){
+  if(["birth", "death", "burial"].includes(f.feld)){
+    const when = fullEvent(v);
+    return [when, v.note && !when.includes(v.note) ? v.note : ""].filter(Boolean).join(" · ");
+  }
+  if(f.feld === "contact") return Object.values(v).filter(Boolean).join(" · ");
+  return "";
+}
+
+/* The words a single value shows, spacing collapsed and the characters a PDF
+   leaves in without showing them dropped (soft hyphen, zero width space, a
+   letter composed of two).  Two values that read the same, letter for letter,
+   are the same - whatever the record keeps beside it. */
+const UNSEEN = /[\u00ad\u200b-\u200d\u2060\ufeff]/g;
 function mergeWords(f, v){
   if(emptyVal(v)) return "";
-  const text = ["birth", "death", "burial"].includes(f.feld) && typeof v === "object"
-    ? [fullEvent(v), v.note].filter(Boolean).join(" · ")
-    : typeof v === "object" ? stableJSON(v) : String(v);
-  return text.replace(/\s+/g, " ").trim();
+  const text = typeof v === "object" ? shownText(f, v) || stableJSON(v) : String(v);
+  return text.normalize("NFC").replace(UNSEEN, "").replace(/\s+/g, " ").trim();
 }
 
 function openMerge(ids){
@@ -6535,6 +6576,7 @@ function renderMerge(){
   const A = BY_ID.get(keep), B = BY_ID.get(drop);
   const block = mergeBlock(keep, drop);
   let open = 0;
+  const conflicts = [];
   const rows = MERGE_FIELDS.filter(f => !(emptyVal(A[f.feld]) && emptyVal(B[f.feld]))).map(f => {
     const va = A[f.feld], vb = B[f.feld];
     let result, conflict = false;
@@ -6549,6 +6591,7 @@ function renderMerge(){
       else if(emptyVal(va)) result = `<span class="mg-take">von #${drop} übernommen</span>`;
       else {
         conflict = true;
+        conflicts.push(f);
         const w = wahl[f.feld];
         if(!w) open++;
         const opt = (val, label) => `<label class="mg-opt${w === val ? " on" : ""}">
@@ -6565,6 +6608,18 @@ function renderMerge(){
   const relatives = DATA.people.filter(q => q.id !== keep && q.id !== drop
     && ((q.parents || []).includes(drop) || (q.spouses || []).includes(drop)));
   const docs = (B.documents || []).length;
+  mergeState.conflicts = conflicts.map(f => [f.feld, f.art]);
+  const allSet = val => conflicts.length && conflicts.every(f =>
+    wahl[f.feld] === (val === "beide" && f.art !== "text" ? "behalten" : val));
+  const bulk = conflicts.length > 1 ? `<div class="acts" style="margin:0 0 10px">
+      <span class="hintline" style="align-self:center">Alle ${conflicts.length} Widersprüche auf einmal:</span>
+      ${[["behalten", "Alles von #" + keep, "Bei jedem Widerspruch gilt der Wert von #" + keep],
+         ["entfernt", "Alles von #" + drop, "Bei jedem Widerspruch gilt der Wert von #" + drop],
+         ["beide", "Alles behalten", "Texte von beiden behalten, bei Einzelwerten gilt #" + keep]]
+        // without a text in dispute "Alles behalten" would be "Alles von #keep" twice
+        .filter(([val]) => val !== "beide" || conflicts.some(f => f.art === "text"))
+        .map(([val, label, tip]) => `<button class="btn${allSet(val) ? " primary" : ""}" data-merge-all="${val}"
+          title="${esc(tip)}">${esc(label)}</button>`).join("")}</div>` : "";
 
   const was = document.querySelector('#scrim [aria-label="Zusammenführen"]');
   const scroll = was ? was.parentElement.scrollTop : 0;
@@ -6591,7 +6646,7 @@ function renderMerge(){
             <button class="btn" style="margin-left:8px" data-merge-swap="1">Andere Nummer behalten</button></p>
         </div>
         ${block ? `<div class="askbox"><p>${esc(block)}</p></div>` : ""}
-        <div class="sec"><h3>Angaben</h3><div class="mg-wrap"><table class="mg">
+        <div class="sec"><h3>Angaben</h3>${bulk}<div class="mg-wrap"><table class="mg">
           <colgroup><col class="mg-c-label"><col class="mg-c-val"><col class="mg-c-val"><col class="mg-c-res"></colgroup>
           <thead><tr><th></th><th>#${keep} bleibt</th><th>#${drop} verschwindet</th><th>Ergebnis</th></tr></thead>
           <tbody>${rows}</tbody></table></div></div>
@@ -6755,6 +6810,17 @@ document.addEventListener("click", async e => {
     const flip = {behalten: "entfernt", entfernt: "behalten", beide: "beide"};
     mergeState = {keep: mergeState.drop, drop: mergeState.keep, ask: false,
       wahl: Object.fromEntries(Object.entries(mergeState.wahl).map(([k, v]) => [k, flip[v]]))};
+    renderMerge();
+    return;
+  }
+  const all = e.target.closest("[data-merge-all]");
+  if(all){
+    // "beide" keeps both texts; a single value cannot be kept twice, so there
+    // the number that stays wins
+    const val = all.dataset.mergeAll;
+    for(const [feld, art] of mergeState.conflicts || [])
+      mergeState.wahl[feld] = val === "beide" && art !== "text" ? "behalten" : val;
+    mergeState.ask = false;
     renderMerge();
     return;
   }

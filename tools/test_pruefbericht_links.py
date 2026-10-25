@@ -41,6 +41,9 @@ FAELLE_PAAR = [
      "verschiedene Angehoerige - vermutlich zwei verschiedene Personen.", [12, 34]),
     ("Zorbas Quendel (#5): Lebensalter 106 Jahre (1700-1806).", None),
     ("Ilvi Feldkamp (#12) und Xaver Lindwurm (#99) sind dieselbe Person, zweimal erfasst.", None),
+    # #66 merged away: the next number in the sentence must not take its place
+    ("Ilvi Feldkamp (#12, *1704) und Ilvi Feldkamp (#66, *1704) sind dieselbe Person, "
+     "zweimal erfasst - gemeinsam: Zorbas Quendel (#5).", None),
 ]
 
 
@@ -203,6 +206,8 @@ class TestBestaetigung(unittest.TestCase):
     born the same year under the same name do exist - but only with a second
     click, and it can be taken back."""
 
+    lauf = TestSeite.lauf
+
     def setUp(self):
         self.s = vorlage()
 
@@ -223,7 +228,7 @@ class TestBestaetigung(unittest.TestCase):
         self.assertIn("+ confirmed + merged;", f)
         self.assertIn("pairConfirmed(p)", f, "bestaetigte Paare verlassen die offene Liste")
         geprueft = teil(self.s, r"function confirmedHTML\(\)\{.*?\n\}")
-        self.assertIn("Geprüft ·", geprueft)
+        self.assertIn("Abgehakt ·", geprueft)
         self.assertIn("data-pair-undo=", geprueft)
         self.assertIn('f.decided === "geprueft"', geprueft)
 
@@ -260,6 +265,69 @@ class TestBestaetigung(unittest.TestCase):
             "4:4": {"print": "p"}, "x:1": {"print": "p"}, "7:8": {"print": 1}}})
         self.assertEqual(sauber["doppelt"], {"3:6": {"print": "p", "am": "2026-09-14"}})
         self.assertEqual(pruefung.leer()["doppelt"], {})
+
+    def test_datei_behaelt_abgehakte_hinweise(self):
+        import sys
+        sys.path.insert(0, HIER)
+        import pruefung
+        sauber = pruefung.bereinigen({"abgehakt": {
+            "1a2b": {"am": "2026-10-25T10:00"}, "../x": {"am": "2026-10-25"}, "c3": "nein"}})
+        self.assertEqual(sauber["abgehakt"], {"1a2b": {"am": "2026-10-25"}})
+        self.assertEqual(pruefung.leer()["abgehakt"], {})
+
+    def test_jeder_hinweis_laesst_sich_abhaken(self):
+        f = teil(self.s, r"function openCheckSheet\(\)\{.*?\n\}")
+        self.assertIn('data-note-ok="', f)
+        self.assertIn("noteTicked(c)", f)
+        unten = teil(self.s, r"function confirmedHTML\(\)\{.*?\n\}")
+        self.assertIn('data-fold="abgehakt"', unten, "zugeklappt, jederzeit aufzuklappen")
+        self.assertIn("data-note-undo", unten)
+        code = "\n".join([
+            teil(self.s, r"function noteKey\(text\)\{.*?\n\}"),
+            "console.log(JSON.stringify([noteKey('Satz A'), noteKey('Satz A'), noteKey('Satz B')]));",
+        ])
+        a, a2, b = self.lauf(code)
+        self.assertEqual(a, a2)
+        self.assertNotEqual(a, b)
+        self.assertRegex(a, r"^[0-9a-z]{1,16}$", "passt zu pruefung.bereinigen")
+
+    def test_fehlt_einer_kommt_der_ganze_baum_von_selbst(self):
+        show = teil(self.s, r"function showPair\(ids\)\{.*?\n\}")
+        self.assertIn("showWholeTree()", show)
+
+    def test_gleich_ist_was_gleich_aussieht(self):
+        code = "\n".join([
+            "const MONTHS = ['', 'Januar', 'Februar', 'März'];",
+            teil(self.s, r"const emptyVal = .*?;\n"),
+            teil(self.s, r"const stableJSON = .*?;\n"),
+            teil(self.s, r"function dateText\(d\)\{.*?\n\}"),
+            teil(self.s, r"function fullEvent\(d\)\{.*?\n\}"),
+            teil(self.s, r"function shownText\(f, v\)\{.*?\n\}"),
+            teil(self.s, r"const UNSEEN = [^\n]*;"),
+            teil(self.s, r"function mergeWords\(f, v\)\{.*?\n\}"),
+            "const geb = {feld: 'birth'}, bio = {feld: 'bio'};",
+            "console.log(JSON.stringify([",
+            "  mergeWords(bio, 'Bauer in Ober\u00addorf') === mergeWords(bio, 'Bauer in Oberdorf'),",
+            "  mergeWords(bio, 'Mu\u0308hle  am\\nBach') === mergeWords(bio, 'Mühle am Bach'),",
+            "  mergeWords(geb, {year: 1704, place: 'Oberdorf', src: 'x'}) === mergeWords(geb, {year: 1704, place: 'Oberdorf'}),",
+            "  mergeWords(geb, {year: 1704, note: 'getauft'}) === mergeWords(geb, {year: 1704}),",
+            "  shownText(geb, {year: 1704, note: 'getauft'}),",
+            "  shownText(geb, {note: 'getauft'}),",
+            "]));",
+        ])
+        weich, zusammengesetzt, versteckt, bemerkung, mit, nur = self.lauf(code)
+        self.assertTrue(weich, "weiches Trennzeichen aus der PDF zaehlt nicht")
+        self.assertTrue(zusammengesetzt, "ü aus zwei Zeichen ist ü")
+        self.assertTrue(versteckt, "was nicht angezeigt wird, macht keinen Widerspruch")
+        self.assertFalse(bemerkung, "eine abweichende Bemerkung ist ein echter Unterschied ...")
+        self.assertEqual(mit, "1704 · getauft", "... und steht deshalb sichtbar in der Tabelle")
+        self.assertEqual(nur, "getauft")
+
+    def test_sammelknoepfe_entscheiden_alle_widersprueche(self):
+        merge = teil(self.s, r"function renderMerge\(\)\{.*?\n\}")
+        for wert in ("behalten", "entfernt", "beide"):
+            self.assertIn('"' + wert + '", "Alles', merge)
+        self.assertIn("data-merge-all", merge)
 
 
 if __name__ == "__main__":
