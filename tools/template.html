@@ -206,6 +206,7 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
   color:var(--ink-3);background:var(--card);
 }
 .row-name{font-size:16.5px;line-height:1.25;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-num{font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums}
 .row-meta{
   font-family:var(--sans);font-size:12px;letter-spacing:.05em;color:var(--ink-3);
   display:flex;gap:7px;margin-top:1px;
@@ -1069,7 +1070,7 @@ try{
 <div class="shell">
   <aside class="register">
     <div class="searchbox">
-      <input id="q" type="search" placeholder="Person, Ort oder Jahr suchen …" autocomplete="off" spellcheck="false">
+      <input id="q" type="search" placeholder="Person, Ort, Jahr oder Nummer suchen …" autocomplete="off" spellcheck="false">
       <div class="filters">
         <button class="chip" data-filter="alle" aria-pressed="true">Alle</button>
         <button class="chip" data-filter="foto" aria-pressed="false">Mit Foto</button>
@@ -1158,7 +1159,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.17.0";
+const VERSION = "1.18.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -1467,13 +1468,19 @@ function avatarHTML(p, cls){
 
 function renderList(){
   const list = document.getElementById("list");
-  const q = fold(query);
+  const q = fold(query).trim();
+  // A number finds the entry with that number, shown first.  "#262" asks for
+  // the number alone; a bare "262" still finds years and places as well.
+  const num = /^#?\s*(\d+)$/.exec(q);
+  const numOnly = num && q.startsWith("#");
+  const wanted = num ? +num[1] : null;
   const rows = [];
   for(const p of DATA.people){
     if(filter === "foto" && !PHOTOS[p.id]) continue;
     const rel = anyRelation(centre, p.id);
     if(filter === "verwandt" && (!rel || rel.kind === "self" || rel.kind === "bericht")) continue;
-    if(q){
+    if(q && p.id !== wanted){
+      if(numOnly) continue;
       const hay = fold([p.name, p.surname, p.relation, p.occupation,
                         (p.birth || {}).place, (p.death || {}).place,
                         (p.birth || {}).year, (p.death || {}).year,
@@ -1485,25 +1492,32 @@ function renderList(){
   if(filter === "jahr"){
     rows.sort((a, b) => (((a.p.birth || {}).year) || 9999) - (((b.p.birth || {}).year) || 9999));
   }
+  if(wanted !== null) rows.sort((a, b) => (b.p.id === wanted) - (a.p.id === wanted));
+  // A number that was merged away is no longer anybody's - say where it went.
+  const gone = wanted !== null && !BY_ID.has(wanted) && typeof PAPIERKORB !== "undefined"
+    ? PAPIERKORB.eintraege.find(e => !e.rueckgaengig && e.entfernt === wanted) : null;
   document.getElementById("counter").textContent =
     rows.length + (rows.length === 1 ? " Person" : " Personen") +
     (rows.length !== DATA.people.length ? " von " + DATA.people.length : "");
 
-  list.innerHTML = rows.map(({p, rel}) => `
+  const goneHTML = gone ? `<p class="empty" style="padding:12px 18px">#${wanted} ${
+      esc(gone.namen[1] || "")} wurde mit ${esc(gone.namen[0] || "")} zusammengeführt – die Nummer ist jetzt
+      <button class="plink" data-open="${gone.behalten}">#${gone.behalten}</button>.</p>` : "";
+  list.innerHTML = goneHTML + rows.map(({p, rel}) => `
     <button class="row${p.id === centre ? " is-centre" : ""}" data-open="${p.id}">
       ${avatarHTML(p, "avatar")}
       <span>
-        <span class="row-name">${esc(p.name)}</span>
+        <span class="row-name">${esc(p.name)}${p.id === wanted ? ` <small class="row-num">#${p.id}</small>` : ""}</span>
         <span class="row-meta">
           <span class="sex ${p.sex || ""}">${p.sex === "w" ? "♀" : p.sex === "m" ? "♂" : "·"}</span>
           <span>${esc(lifespan(p)) || "—"}</span>
           <span class="row-rel${rel && rel.kind === "bericht" ? " weak" : ""}">${esc(rel ? (rel.kind === "bericht" ? "laut Bericht: " + rel.label : rel.label) : "keine Verbindung")}</span>
         </span>
       </span>
-    </button>`).join("") || `<p class="empty" style="padding:18px">${
+    </button>`).join("") || (goneHTML ? "" : `<p class="empty" style="padding:18px">${
       filter === "verwandt" && centre === null
         ? "Verwandtschaft wird vom Mittelpunkt aus gerechnet \u2013 dafür muss erst jemand ausgewählt sein."
-        : "Nichts gefunden."}</p>`;
+        : "Nichts gefunden."}</p>`);
 }
 
 /* ------------------------------------------------------------------ diagram
