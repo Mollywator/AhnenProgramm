@@ -550,13 +550,15 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
 .scrim{
   position:fixed;inset:0;z-index:200;background:rgba(24,20,14,.55);
   display:grid;place-items:start center;padding:44px 20px;overflow-y:auto;
+  /* a wide table inside scrolls on its own instead of pushing the sheet off a phone */
+  grid-template-columns:minmax(0,1fr);
   backdrop-filter:blur(3px);animation:fade .18s ease;
 }
 html[data-theme="abend"] .scrim{background:rgba(0,0,0,.7)}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 .sheet{
-  width:min(820px,100%);background:var(--paper);border:1px solid var(--rule-2);
+  width:min(820px,100%);min-width:0;background:var(--paper);border:1px solid var(--rule-2);
   border-radius:3px;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);
   animation:rise .24s cubic-bezier(.2,.8,.3,1);
 }
