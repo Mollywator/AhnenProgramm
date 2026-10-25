@@ -229,7 +229,10 @@ picture only — 29 ms for eighteen of them.
 - Four scopes: *Nahe Familie* (three generations around the centre plus the
   centre's nephews and nieces and parents-in-law; the ▾ menu beside it
   switches those off and grandparents-in-law, siblings-in-law and the
-  partner's nephews and nieces on), *Ahnentafel* (see below),
+  partner's nephews and nieces on, and its *Reihe* row adds the side lines
+  by generation: 1 = aunts and uncles with their children, 2 = great-aunts
+  and great-uncles with theirs, 3 = the great-grandparents' siblings, each
+  line stopping at the centre's own generation), *Ahnentafel* (see below),
   *Ganze Linie* (every blood relative of the centre plus their partners) and
   *Alle* (all 326). The big views run to roughly 23000 × 1900 pixels, so the
   diagram pans freely by dragging and zooms from 4 % to 400 %; below 62 % the
