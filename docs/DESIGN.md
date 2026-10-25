@@ -193,7 +193,9 @@ to a canvas to become a PNG, resolve nothing, so every portrait would be an empt
 frame. `photosAsData` fetches them at the moment of export, for the people in the
 picture only — 29 ms for eighteen of them.
 
-- The register on the left searches names, places, years and occupations.
+- The register on the left searches names, places, years and occupations, and
+  entry numbers: `262` puts entry #262 first, `#262` shows it alone. A number
+  that was merged away says which number it lives on as now.
 - Clicking a row opens that person's sheet; clicking a box in the diagram makes
   that person the new centre. The ⓘ badge on a box opens the sheet instead.
 - Every other person is then labelled with their relationship *to that centre* —
@@ -227,7 +229,10 @@ picture only — 29 ms for eighteen of them.
 - Four scopes: *Nahe Familie* (three generations around the centre plus the
   centre's nephews and nieces and parents-in-law; the ▾ menu beside it
   switches those off and grandparents-in-law, siblings-in-law and the
-  partner's nephews and nieces on), *Ahnentafel* (see below),
+  partner's nephews and nieces on, and its *Reihe* row adds the side lines
+  by generation: 1 = aunts and uncles with their children, 2 = great-aunts
+  and great-uncles with theirs, 3 = the great-grandparents' siblings, each
+  line stopping at the centre's own generation), *Ahnentafel* (see below),
   *Ganze Linie* (every blood relative of the centre plus their partners) and
   *Alle* (all 326). The big views run to roughly 23000 × 1900 pixels, so the
   diagram pans freely by dragging and zooms from 4 % to 400 %; below 62 % the

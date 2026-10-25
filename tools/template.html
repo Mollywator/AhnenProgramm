@@ -206,6 +206,7 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
   color:var(--ink-3);background:var(--card);
 }
 .row-name{font-size:16.5px;line-height:1.25;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-num{font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums}
 .row-meta{
   font-family:var(--sans);font-size:12px;letter-spacing:.05em;color:var(--ink-3);
   display:flex;gap:7px;margin-top:1px;
@@ -408,6 +409,11 @@ img.avatar.gone,img.portrait.gone{filter:grayscale(1) contrast(.95)}
 .popover[hidden]{display:none}
 .popover label{display:flex;align-items:center;gap:7px;cursor:pointer}
 .popover label.off{opacity:.45;cursor:default}
+.popover .reihe{display:flex;align-items:center;gap:0;margin-top:3px;padding-top:8px;border-top:1px dotted var(--rule)}
+.popover .reihe-label{margin-right:9px}
+.popover .reihe .btn{min-width:30px;padding:0 6px;border-radius:0;margin-left:-1px}
+.popover .reihe .btn:first-of-type{border-radius:2px 0 0 2px;margin-left:0}
+.popover .reihe .btn:last-of-type{border-radius:0 2px 2px 0}
 .manual h3{margin-top:0}
 .manual p{margin:0 0 10px;font-size:15.5px;line-height:1.6;color:var(--ink-2);max-width:62ch}
 .manual p:last-child{margin-bottom:0}
@@ -1071,7 +1077,7 @@ try{
 <div class="shell">
   <aside class="register">
     <div class="searchbox">
-      <input id="q" type="search" placeholder="Person, Ort oder Jahr suchen …" autocomplete="off" spellcheck="false">
+      <input id="q" type="search" placeholder="Person, Ort, Jahr oder Nummer suchen …" autocomplete="off" spellcheck="false">
       <div class="filters">
         <button class="chip" data-filter="alle" aria-pressed="true">Alle</button>
         <button class="chip" data-filter="foto" aria-pressed="false">Mit Foto</button>
@@ -1109,6 +1115,16 @@ try{
             <label><input type="checkbox" data-near="schwager"> Schwager und Schwägerin</label>
             <label><input type="checkbox" data-near="neffen" checked> Neffen und Nichten</label>
             <label><input type="checkbox" data-near="neffenAngeheiratet"> Angeheiratete Neffen und Nichten</label>
+            <!-- How far up the side lines go: each step takes the brothers and
+                 sisters of one more generation of forebears, with their
+                 children down to the centre's own generation. -->
+            <span class="reihe" id="nearReihe" role="group" aria-label="Reihe">
+              <span class="reihe-label">Reihe</span>
+              <button type="button" class="btn tipped" data-reihe="0" aria-pressed="true" data-tip="Keine Seitenlinien">–</button>
+              <button type="button" class="btn tipped" data-reihe="1" aria-pressed="false" data-tip="1. Reihe: Onkel und Tanten mit ihren Kindern">1.</button>
+              <button type="button" class="btn tipped" data-reihe="2" aria-pressed="false" data-tip="2. Reihe: dazu Großonkel und Großtanten mit Kindern und Enkeln">2.</button>
+              <button type="button" class="btn tipped" data-reihe="3" aria-pressed="false" data-tip="3. Reihe: dazu die Geschwister der Urgroßeltern und ihre Nachkommen">3.</button>
+            </span>
           </span>
         </span>
         <button class="btn tipped" data-mode="ahnen" aria-pressed="false" data-tip="Nur die Vorfahren – die einzige Ansicht ganz ohne Kreuzungen">Ahnentafel</button>
@@ -1160,7 +1176,7 @@ const PHOTOS = __PHOTOS__;
    properties. It lives in the template rather than in a Python file because
    this page has to carry it with no program behind it - and a number kept in
    two places is a number that will eventually disagree with itself. */
-const VERSION = "1.17.0";
+const VERSION = "1.19.0";
 
 /* ------------------------------------------------------------------ setup */
 const BY_ID = new Map(DATA.people.map(p => [p.id, p]));
@@ -1469,13 +1485,19 @@ function avatarHTML(p, cls){
 
 function renderList(){
   const list = document.getElementById("list");
-  const q = fold(query);
+  const q = fold(query).trim();
+  // A number finds the entry with that number, shown first.  "#262" asks for
+  // the number alone; a bare "262" still finds years and places as well.
+  const num = /^#?\s*(\d+)$/.exec(q);
+  const numOnly = num && q.startsWith("#");
+  const wanted = num ? +num[1] : null;
   const rows = [];
   for(const p of DATA.people){
     if(filter === "foto" && !PHOTOS[p.id]) continue;
     const rel = anyRelation(centre, p.id);
     if(filter === "verwandt" && (!rel || rel.kind === "self" || rel.kind === "bericht")) continue;
-    if(q){
+    if(q && p.id !== wanted){
+      if(numOnly) continue;
       const hay = fold([p.name, p.surname, p.relation, p.occupation,
                         (p.birth || {}).place, (p.death || {}).place,
                         (p.birth || {}).year, (p.death || {}).year,
@@ -1487,25 +1509,32 @@ function renderList(){
   if(filter === "jahr"){
     rows.sort((a, b) => (((a.p.birth || {}).year) || 9999) - (((b.p.birth || {}).year) || 9999));
   }
+  if(wanted !== null) rows.sort((a, b) => (b.p.id === wanted) - (a.p.id === wanted));
+  // A number that was merged away is no longer anybody's - say where it went.
+  const gone = wanted !== null && !BY_ID.has(wanted) && typeof PAPIERKORB !== "undefined"
+    ? PAPIERKORB.eintraege.find(e => !e.rueckgaengig && e.entfernt === wanted) : null;
   document.getElementById("counter").textContent =
     rows.length + (rows.length === 1 ? " Person" : " Personen") +
     (rows.length !== DATA.people.length ? " von " + DATA.people.length : "");
 
-  list.innerHTML = rows.map(({p, rel}) => `
+  const goneHTML = gone ? `<p class="empty" style="padding:12px 18px">#${wanted} ${
+      esc(gone.namen[1] || "")} wurde mit ${esc(gone.namen[0] || "")} zusammengeführt – die Nummer ist jetzt
+      <button class="plink" data-open="${gone.behalten}">#${gone.behalten}</button>.</p>` : "";
+  list.innerHTML = goneHTML + rows.map(({p, rel}) => `
     <button class="row${p.id === centre ? " is-centre" : ""}" data-open="${p.id}">
       ${avatarHTML(p, "avatar")}
       <span>
-        <span class="row-name">${esc(p.name)}</span>
+        <span class="row-name">${esc(p.name)}${p.id === wanted ? ` <small class="row-num">#${p.id}</small>` : ""}</span>
         <span class="row-meta">
           <span class="sex ${p.sex || ""}">${p.sex === "w" ? "♀" : p.sex === "m" ? "♂" : "·"}</span>
           <span>${esc(lifespan(p)) || "—"}</span>
           <span class="row-rel${rel && rel.kind === "bericht" ? " weak" : ""}">${esc(rel ? (rel.kind === "bericht" ? "laut Bericht: " + rel.label : rel.label) : "keine Verbindung")}</span>
         </span>
       </span>
-    </button>`).join("") || `<p class="empty" style="padding:18px">${
+    </button>`).join("") || (goneHTML ? "" : `<p class="empty" style="padding:18px">${
       filter === "verwandt" && centre === null
         ? "Verwandtschaft wird vom Mittelpunkt aus gerechnet \u2013 dafür muss erst jemand ausgewählt sein."
-        : "Nichts gefunden."}</p>`;
+        : "Nichts gefunden."}</p>`);
 }
 
 /* ------------------------------------------------------------------ diagram
@@ -1604,7 +1633,7 @@ let showLinked = false;
 let locked = false;          // the view is locked: a box opens its sheet, the centre stays
 let spotlight = [];          // ids pointed out in the tree from the Prüfbericht
 const nearExtra = {schwiegereltern: true, schwiegergross: false, schwager: false,
-                   neffen: true, neffenAngeheiratet: false};
+                   neffen: true, neffenAngeheiratet: false, reihe: 0};
 
 function nearSet(id){
   const seen = new Set([id]);
@@ -1673,6 +1702,38 @@ function nearSet(id){
             for(const sp of (BY_ID.get(kid) || {spouses: []}).spouses) add(sp);
           }
         }
+  /* The side lines, "Reihe" n: the brothers and sisters of every forebear up
+     to n generations above the centre, each with their children down to the
+     centre's own generation - Reihe 1 is aunts, uncles and cousins.  Their
+     common parents have to stand on the stage too, or the siblings would hang
+     in the air; for Reihe 3 that is one generation above the view's top. */
+  const reihe = nearExtra.reihe || 0;
+  let row = [id];
+  for(let up = 1; up <= reihe; up++){
+    const next = [];
+    for(const x of row)
+      for(const parent of (BY_ID.get(x) || {parents: []}).parents)
+        if(BY_ID.has(parent)) next.push(parent);
+    row = next;
+    for(const anc of row)
+      for(const top of BY_ID.get(anc).parents){
+        add(top);
+        for(const sib of (BY_ID.get(top) || {children: []}).children){
+          if(sib === anc) continue;
+          let line = [sib];
+          for(let down = 0; down <= up && line.length; down++){
+            const kids = [];
+            for(const y of line){
+              if(!BY_ID.has(y)) continue;
+              add(y);
+              for(const sp of BY_ID.get(y).spouses) add(sp);
+              if(down < up) kids.push(...BY_ID.get(y).children);
+            }
+            line = kids;
+          }
+        }
+      }
+  }
   return seen;
 }
 /* "Alle" means this tree's own people plus who married into it - and stops
@@ -5918,6 +5979,12 @@ document.addEventListener("keydown", e => {
         box.closest("label").classList.toggle("off", box.disabled);
       }
     };
+    const reiheBtns = nearMenu.querySelectorAll("button[data-reihe]");
+    reiheBtns.forEach(b => b.addEventListener("click", () => {
+      nearExtra.reihe = Number(b.dataset.reihe);
+      reiheBtns.forEach(o => o.setAttribute("aria-pressed", String(o === b)));
+      if(mode === "nah") renderTree();
+    }));
     nearMenu.querySelectorAll("input[data-near]").forEach(box =>
       box.addEventListener("change", () => {
         nearExtra[box.dataset.near] = box.checked;
@@ -6061,7 +6128,7 @@ document.getElementById("helpBtn").addEventListener("click", () => {
         <div class="sec">
           <h3>Die vier Ansichten</h3>
           <ul>
-            <li><span>Nahe Familie</span><span>Drei Generationen um den Mittelpunkt, dazu Neffen, Nichten und die Schwiegereltern. Im Menü ▾ daneben lässt sich das abschalten – und Schwager, Schwägerin und die angeheirateten Neffen und Nichten dazunehmen. Übersichtlich, ohne eine einzige gekreuzte Linie.</span></li>
+            <li><span>Nahe Familie</span><span>Drei Generationen um den Mittelpunkt, dazu Neffen, Nichten und die Schwiegereltern. Im Menü ▾ daneben lässt sich das abschalten – und Schwager, Schwägerin und die angeheirateten Neffen und Nichten dazunehmen. Unter „Reihe" kommen die Seitenlinien dazu: die 1. Reihe sind Onkel und Tanten mit ihren Kindern, die 2. Reihe Großonkel und Großtanten mit ihren Nachkommen, die 3. Reihe die Geschwister der Urgroßeltern. Übersichtlich, ohne eine einzige gekreuzte Linie.</span></li>
             <li><span>Ahnentafel</span><span>Nur die Vorfahren. Die Vorfahren eines Menschen sind ein echter Baum, deshalb ist das die einzige Ansicht, die <b>garantiert ohne Kreuzungen</b> auskommt. Zum Ausdrucken die richtige.</span></li>
             <li><span>Ganze Linie</span><span>Alle Blutsverwandten des Mittelpunkts samt ihrer Ehepartner.</span></li>
             <li><span>Alle</span><span>Jede Person aus dem Bericht. Sehr groß – am besten mit dem Legenden-Filter und der Hervorhebung arbeiten.</span></li>
