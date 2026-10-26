@@ -81,9 +81,10 @@ also gets *Beide im Stammbaum zeigen* (`pairOf`, `showPair`). It marks both boxe
 in the tree exactly as it stands - no new centre, no other view, no zoom - because
 two boxes pulled next to each other would claim something the tree does not. A
 marked box outside the picture gets an arrow at the edge (`updateSpotArrows`,
-redrawn from `paint`); clicking it only pans there. A box the current view does
-not draw is named in the bar under the tree, with *Ganzen Baum zeigen* as an
-explicit click.
+redrawn from `paint`); clicking it only pans there. When the current view does
+not draw one of the two at all, the page switches to the whole tree by itself
+(`showWholeTree`) - two entries of which only one is on the screen cannot be
+compared.
 
 ### Merging two entries
 
@@ -92,8 +93,14 @@ duplicate finding, from the bar under the tree, or from a person's sheet
 (*Zusammenführen …*, search by number or name). The page shows both records
 field by field (`renderMerge`, field list sent by the server). Equal values and
 values present on one side are taken; lists are unioned; every disagreement has
-to be answered, and a text may be kept from both sides. The merge takes a second
-click. Relatives pointing at the removed number are re-pointed, documents move
+to be answered, and a text may be kept from both sides. Equal means what the
+table shows: a birth, death or burial is compared with its remark (`shownText`,
+which also displays it), and characters a PDF leaves in without showing them -
+soft hyphen, zero-width characters, a letter composed of two (NFC) - are
+ignored. With more than one disagreement, *Alles von #A*, *Alles von #B* and
+*Alles behalten* (texts from both, single values from the number that stays)
+answer all at once; each row can still be changed afterwards. The merge takes a
+second click. Relatives pointing at the removed number are re-pointed, documents move
 into the kept number's folder. Merging a parent with its child, or removing a
 number that is linked to another tree, is refused.
 
@@ -106,12 +113,16 @@ replaced by a new one.
 
 In the editor such a pair can be confirmed as two different people (two uncles
 of the same name and year do exist): *Passt so – zwei verschiedene Personen*.
-Every decision in the report takes two clicks (`askButton`) so nothing is
-clicked away in passing. Confirmed findings - pairs and deaths marked
-*Geprüft* - leave the open list for a *Geprüft* section at the foot of the
-report, each with its date and *rückgängig*. Pairs are stored under `doppelt`
-in `pruefung.json` with a fingerprint of both people's name, birth and parents;
-when one of those changes, the finding asks again.
+Every other finding of the import can be ticked off as fine:
+*Abhaken – passt so*. Every decision in the report takes two clicks
+(`askButton`) so nothing is clicked away in passing. Decided findings - pairs,
+ticked-off findings and deaths marked *Geprüft* - leave the open list for a
+folded *Abgehakt* section at the foot of the report, each with its date and
+*Rückgängig*. Pairs are stored under `doppelt` in `pruefung.json` with a
+fingerprint of both people's name, birth and parents; when one of those
+changes, the finding asks again. Ticked-off findings are stored under
+`abgehakt`, keyed by an FNV-1a fingerprint of the sentence (`noteKey`), so a
+tree read in again with a different sentence asks again.
 
 In the editor the same button also carries a check that runs in the background
 while the program is open: a mother who died before a child's birth, or a father
